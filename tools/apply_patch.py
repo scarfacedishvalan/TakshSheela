@@ -1,5 +1,5 @@
 """
-apply_patch.py — Apply a scenario fault patch to a problem workspace.
+apply_patch.py — Apply a scenario fault patch to the shared workspace git repo.
 
 Usage:
     python tools/apply_patch.py \
@@ -9,9 +9,15 @@ Usage:
         --message  "<realistic commit message>" \
         [--force]
 
+Branch naming convention:
+    <problem_id>--canonical   source branch (must exist, created by seed_canonical.py)
+    <problem_id>--<scenario>  new scenario branch created by this tool
+
+    e.g. prob-001--canonical, prob-001--scen-001
+
 Precondition:
-    <workspace_root>/<problem_id>/ must be a git repo with a 'canonical' branch,
-    created by seed_canonical.py.
+    workspace_root (from tools/config.json) must be a git repo with branch
+    <problem_id>--canonical already created by seed_canonical.py.
 
 Checks performed before any git operation:
     1. Patch file exists and is non-empty
@@ -25,7 +31,7 @@ Hard gate:
        Any failure exits 1 immediately. No retry, no LLM involvement.
 
 On success:
-    Creates branch <scenario_id> off canonical.
+    Creates branch <problem_id>--<scenario_id> off <problem_id>--canonical.
     Applies patch, removes patch.diff, commits with --message.
 """
 
@@ -107,16 +113,12 @@ def check_2_valid_diff_structure(patch_text):
 def check_3_repo_relative_paths(patch_text):
     """All --- and +++ paths must be repo-relative with no forbidden prefixes."""
     FORBIDDEN = [
-        # Windows absolute paths
-        (r"^[ab]/[A-Za-z]:[/\\]",        "absolute Windows path"),
-        # Unix absolute paths
-        (r"^[ab]//",                       "absolute Unix path"),
-        # Full repo-internal prefix violating PATCH_CONTRACT
-        (r"^[ab]/codes/",                  "full repo path — must be canonical-relative (e.g. a/nightproc/store.py)"),
-        # Old internal workspace path
-        (r"_workspace",                    "workspace path in diff — forbidden"),
-        # Backslashes (git diff always uses forward slashes)
-        (r"\\",                            "backslash in path — git diff uses forward slashes only"),
+        (r"^[ab]/[A-Za-z]:[/\\]", "absolute Windows path"),
+        (r"^[ab]//",               "absolute Unix path"),
+        (r"^[ab]/codes/",          "full repo path — must be canonical-relative (e.g. a/nightproc/store.py)"),
+        (r"_workspace",            "workspace path in diff — forbidden"),
+        (r"_scratch",              "scratch path in diff — forbidden"),
+        (r"\\",                    "backslash in path — git diff uses forward slashes only"),
     ]
 
     for line in patch_text.splitlines():
@@ -140,7 +142,7 @@ def check_4_hunk_count(patch_text, patch_path):
     if not meta_path.exists():
         hard_stop(
             f"patch_meta.json not found: {meta_path}\n"
-            "The patch_injection agent must produce patch_meta.json alongside patch.diff."
+            "The orchestrator must produce patch_meta.json alongside patch.diff."
         )
 
     with open(meta_path) as f:
@@ -179,7 +181,7 @@ def check_5_target_files_exist(patch_text, workspace):
             continue
         path_part = line[4:].split("\t")[0].strip()
         if path_part in ("/dev/null", "dev/null"):
-            continue  # new file addition — no existing source required
+            continue
         rel = path_part[2:] if path_part.startswith("a/") else path_part
         if not (workspace / rel).exists():
             missing.append(rel)
@@ -198,7 +200,7 @@ def check_5_target_files_exist(patch_text, workspace):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Apply a scenario fault patch to a problem workspace.",
+        description="Apply a scenario fault patch to the shared workspace git repo.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
@@ -210,10 +212,11 @@ def main():
     args = parser.parse_args()
 
     cfg = load_config()
-    workspace_root   = Path(cfg["workspace_root"])
+    workspace        = Path(cfg["workspace_root"])
     takshsheela_root = Path(cfg["takshsheela_root"])
 
-    workspace = workspace_root / args.problem
+    canonical_branch = f"{args.problem}--canonical"
+    scenario_branch  = f"{args.problem}--{args.scenario}"
 
     # Resolve patch path
     patch_path = Path(args.patch)
@@ -224,22 +227,18 @@ def main():
     # --------------- Workspace validation ---------------
 
     if not workspace.exists():
-        hard_stop(
-            f"workspace not found: {workspace}\n"
-            "Run seed_canonical.py --problem {args.problem} first."
-        )
+        hard_stop(f"workspace not found: {workspace}")
     if not (workspace / ".git").exists():
-        hard_stop(f"workspace exists but is not a git repo: {workspace}")
+        hard_stop(f"workspace is not a git repo: {workspace}")
 
-    result = git(["branch", "--list", "canonical"], cwd=workspace, check=False)
-    if "canonical" not in result.stdout:
+    result = git(["branch", "--list", canonical_branch], cwd=workspace, check=False)
+    if canonical_branch not in result.stdout:
         hard_stop(
-            f"'canonical' branch not found in {workspace}.\n"
-            "Run seed_canonical.py --problem {args.problem} first."
+            f"branch '{canonical_branch}' not found in workspace.\n"
+            f"Run: python tools/seed_canonical.py --problem {args.problem}"
         )
 
     # --------------- Pre-flight checks 1–4 ---------------
-    # These run before touching the repo.
 
     print("[ 1/6 ] Checking patch file exists and is non-empty...")
     patch_text = check_1_exists_nonempty(patch_path)
@@ -259,8 +258,8 @@ def main():
 
     # --------------- Checkout canonical for checks 5–6 ---------------
 
-    print(f"\nChecking out canonical...")
-    git(["checkout", "canonical"], cwd=workspace)
+    print(f"\nChecking out {canonical_branch}...")
+    git(["checkout", canonical_branch], cwd=workspace)
 
     print("[ 5/6 ] Checking target files exist in canonical...")
     check_5_target_files_exist(patch_text, workspace)
@@ -268,19 +267,19 @@ def main():
 
     # --------------- Scenario branch ---------------
 
-    existing = git(["branch", "--list", args.scenario], cwd=workspace, check=False)
-    if args.scenario in existing.stdout:
+    existing = git(["branch", "--list", scenario_branch], cwd=workspace, check=False)
+    if scenario_branch in existing.stdout:
         if args.force:
-            git(["branch", "-D", args.scenario], cwd=workspace)
-            print(f"\nDeleted existing branch: {args.scenario}")
+            git(["branch", "-D", scenario_branch], cwd=workspace)
+            print(f"\nDeleted existing branch: {scenario_branch}")
         else:
             hard_stop(
-                f"branch '{args.scenario}' already exists.\n"
+                f"branch '{scenario_branch}' already exists.\n"
                 "Use --force to overwrite."
             )
 
-    git(["checkout", "-b", args.scenario], cwd=workspace)
-    print(f"Created branch: {args.scenario}")
+    git(["checkout", "-b", scenario_branch], cwd=workspace)
+    print(f"Created branch: {scenario_branch}")
 
     # Copy patch into workspace root (temporary — deleted before commit)
     patch_dest = workspace / "patch.diff"
@@ -292,10 +291,9 @@ def main():
     result = git(["apply", "--check", "patch.diff"], cwd=workspace, check=False)
 
     if result.returncode != 0:
-        # Clean up: remove patch, delete branch, return to canonical
         patch_dest.unlink(missing_ok=True)
-        git(["checkout", "canonical"], cwd=workspace)
-        git(["branch", "-D", args.scenario], cwd=workspace)
+        git(["checkout", canonical_branch], cwd=workspace)
+        git(["branch", "-D", scenario_branch], cwd=workspace)
         print(file=sys.stderr)
         print(result.stderr.strip(), file=sys.stderr)
         hard_stop(
@@ -310,18 +308,16 @@ def main():
     print("\nApplying patch...")
     git(["apply", "patch.diff"], cwd=workspace)
 
-    # Remove patch.diff — no evidence of injection in the working tree
     patch_dest.unlink()
 
     git(["add", "-A"], cwd=workspace)
     git(["commit", "-m", args.message], cwd=workspace)
 
-    # Report commit hash
     log = git(["log", "--oneline", "-1"], cwd=workspace, check=False)
 
     print(f"\nDone.")
     print(f"  Workspace : {workspace}")
-    print(f"  Branch    : {args.scenario}")
+    print(f"  Branch    : {scenario_branch}")
     print(f"  Commit    : {log.stdout.strip()}")
 
 

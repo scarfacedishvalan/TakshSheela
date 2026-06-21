@@ -97,10 +97,23 @@ def main():
     args = parser.parse_args()
 
     cfg = load_config()
-    workspace = Path(cfg["workspace_root"]) / args.problem
+    workspace = Path(cfg["workspace_root"])
 
     if not workspace.exists():
         print(json.dumps({"error": f"workspace not found: {workspace}"}))
+        sys.exit(1)
+
+    scenario_branch = f"{args.problem}--{args.scenario}"
+
+    # Checkout the scenario branch before running
+    result = subprocess.run(
+        ["git", "checkout", scenario_branch],
+        cwd=workspace,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(json.dumps({"error": f"branch '{scenario_branch}' not found in workspace"}))
         sys.exit(1)
 
     env = build_env(workspace)

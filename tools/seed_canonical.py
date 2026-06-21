@@ -1,5 +1,5 @@
 """
-seed_canonical.py — Initialise a problem workspace git repo from a canonical codebase.
+seed_canonical.py — Seed a canonical branch in the shared workspace git repo.
 
 Usage:
     python tools/seed_canonical.py --problem <problem_id> [options]
@@ -9,14 +9,20 @@ Usage:
                          Defaults to <takshsheela_root>/codes/<problem_id>/canonical
         --name NAME      System name for the commit message, e.g. nightproc.
                          Defaults to problem_id.
-        --force          Delete and reinitialise if workspace already exists.
+        --force          Delete and recreate the canonical branch if it already exists.
 
 Creates:
-    <workspace_root>/<problem_id>/  as a git repo with a single orphan branch
-    named 'canonical', containing the canonical codebase files flat at repo root.
+    Branch <problem_id>--canonical in the shared workspace git repo at workspace_root.
+    The branch is an orphan with no shared history with other problem branches.
+    Canonical codebase files are placed flat at repo root (no subdirectory).
+
+Branch naming convention:
+    <problem_id>--canonical   e.g. prob-001--canonical
+    <problem_id>--<scenario>  e.g. prob-001--scen-001  (created by apply_patch.py)
 
 Precondition:
     tools/config.json must exist with 'workspace_root' and 'takshsheela_root' keys.
+    workspace_root must be an existing git repo (git init once manually if needed).
 """
 
 import argparse
@@ -51,21 +57,31 @@ def git(args, cwd):
     return result
 
 
+def git_check(args, cwd):
+    """Run a git command without exiting on failure. Returns result."""
+    return subprocess.run(
+        ["git"] + args,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(
-        description="Seed a problem workspace git repo from a canonical codebase."
+        description="Seed a canonical branch in the shared workspace git repo."
     )
     parser.add_argument("--problem", required=True, help="Problem ID, e.g. prob-001")
     parser.add_argument("--source", default=None, help="Path to canonical codebase directory")
     parser.add_argument("--name", default=None, help="System name for commit message, e.g. nightproc")
-    parser.add_argument("--force", action="store_true", help="Reinitialise if workspace already exists")
+    parser.add_argument("--force", action="store_true", help="Delete and recreate canonical branch if it exists")
     args = parser.parse_args()
 
     cfg = load_config()
-    workspace_root = Path(cfg["workspace_root"])
+    workspace = Path(cfg["workspace_root"])
     takshsheela_root = Path(cfg["takshsheela_root"])
 
-    workspace = workspace_root / args.problem
+    canonical_branch = f"{args.problem}--canonical"
 
     source = (
         Path(args.source).resolve()
@@ -80,21 +96,34 @@ def main():
         print(f"ERROR: source is not a directory: {source}", file=sys.stderr)
         sys.exit(1)
 
-    # Handle existing workspace
-    if workspace.exists():
+    # Workspace must already be a git repo
+    if not workspace.exists():
+        print(f"ERROR: workspace not found: {workspace}", file=sys.stderr)
+        print("Create the workspace repo manually: git init <path>", file=sys.stderr)
+        sys.exit(1)
+    if not (workspace / ".git").exists():
+        print(f"ERROR: workspace is not a git repo: {workspace}", file=sys.stderr)
+        print("Initialise it manually: git -C <path> init", file=sys.stderr)
+        sys.exit(1)
+
+    # Handle existing canonical branch
+    existing = git_check(["branch", "--list", canonical_branch], cwd=workspace)
+    if canonical_branch in existing.stdout:
         if args.force:
-            shutil.rmtree(workspace)
-            print(f"Removed existing workspace: {workspace}")
+            # Switch away from the branch before deleting it
+            git_check(["checkout", "--orphan", "_temp_detach"], cwd=workspace)
+            git(["branch", "-D", canonical_branch], cwd=workspace)
+            print(f"Deleted existing branch: {canonical_branch}")
         else:
-            print(f"ERROR: workspace already exists: {workspace}", file=sys.stderr)
-            print("Use --force to reinitialise.", file=sys.stderr)
+            print(f"ERROR: branch '{canonical_branch}' already exists.", file=sys.stderr)
+            print("Use --force to recreate.", file=sys.stderr)
             sys.exit(1)
 
-    workspace.mkdir(parents=True)
+    # Create orphan branch — no shared history with other problems
+    git(["checkout", "--orphan", canonical_branch], cwd=workspace)
 
-    # Initialise git repo and create orphan canonical branch
-    git(["init"], cwd=workspace)
-    git(["checkout", "--orphan", "canonical"], cwd=workspace)
+    # Clear any files inherited from the previous working tree
+    git_check(["rm", "-rf", "."], cwd=workspace)
 
     # Copy canonical codebase contents flat into workspace root
     for item in source.iterdir():
@@ -111,7 +140,7 @@ def main():
 
     print(f"\nSeeded successfully.")
     print(f"  Workspace : {workspace}")
-    print(f"  Branch    : canonical")
+    print(f"  Branch    : {canonical_branch}")
     print(f"  Source    : {source}")
     print(f"  System    : {system_name}")
 
