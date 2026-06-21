@@ -120,19 +120,23 @@ The job will fail on its first attempt and succeed on retry.
   "run_id": "run-1719792000",
   "generated_at": "2026-06-19T22:00:01",
   "job_count": 20,
-  "total": 18450,
+  "total_processed": 20,
+  "total_value": 18450,
   "failed_count": 0,
+  "discrepancy": 0,
   "categories": {
-    "invoices": { "total": 12450, "failed": 0 },
-    "credits":  { "total": 4500,  "failed": 0 },
-    "adjustments": { "total": 1500, "failed": 0 }
+    "invoices": { "count": 9, "value": 12450, "failed": 0 },
+    "credits":  { "count": 5, "value": 4500,  "failed": 0 },
+    "adjustments": { "count": 6, "value": 1500, "failed": 0 }
   }
 }
 ```
 
-`job_count` is the number of jobs submitted (always correct).
-`total` is the sum of all processed job values from the accumulator.
-`discrepancy` (in logs only) = `job_count - total - failed_count`. Should be 0.
+`job_count` is the number of jobs that reached a terminal state (success or permanent failure).
+`total_processed` is the count of successfully processed jobs from the accumulator.
+`total_value` is the sum of processed job values from the accumulator.
+`failed_count` is the count of permanently failed jobs from the accumulator.
+`discrepancy` = `job_count - total_processed - failed_count`. Should be 0.
 
 ---
 

@@ -1,0 +1,24 @@
+diff --git a/codes/prob-001/canonical/nightproc/store.py b/codes/_workspace/prob-001-scen-001/nightproc/store.py
+index 15203e7..b2fb869 100644
+--- a/codes/prob-001/canonical/nightproc/store.py
++++ b/codes/_workspace/prob-001-scen-001/nightproc/store.py
+@@ -31,13 +31,12 @@ def update(accumulator, category, value, failed=False):
+ 
+     Thread-safe: acquires _lock for the full read-modify-write.
+     """
+-    with _lock:
+-        if failed:
+-            key = f"{category}_failed"
+-            accumulator[key] = accumulator.get(key, 0) + 1
+-        else:
+-            accumulator[f"{category}_count"] = accumulator.get(f"{category}_count", 0) + 1
+-            accumulator[f"{category}_total"] = accumulator.get(f"{category}_total", 0) + value
++    if failed:
++        key = f"{category}_failed"
++        accumulator[key] = accumulator.get(key, 0) + 1
++    else:
++        accumulator[f"{category}_count"] = accumulator.get(f"{category}_count", 0) + 1
++        accumulator[f"{category}_total"] = accumulator.get(f"{category}_total", 0) + value
+ 
+ 
+ def read(accumulator):
