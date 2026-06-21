@@ -1,0 +1,75 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Lineage",
+  "description": "Artifact hash chain for the full problem pipeline. Enables selective rebuild — if a hash matches, the downstream stage is valid and can be skipped.",
+  "type": "object",
+  "required": ["spec_id", "version", "stages"],
+  "properties": {
+    "spec_id": { "type": "string" },
+    "version": { "type": "string" },
+    "stages": {
+      "type": "object",
+      "required": ["spec"],
+      "properties": {
+        "spec": {
+          "type": "object",
+          "required": ["file", "hash", "updated_at"],
+          "properties": {
+            "file": { "type": "string" },
+            "hash": { "type": "string" },
+            "updated_at": { "type": "string", "format": "date-time" }
+          },
+          "additionalProperties": false
+        },
+        "blueprint": {
+          "type": "object",
+          "required": ["file", "hash", "updated_at", "input_hash"],
+          "properties": {
+            "file": { "type": "string" },
+            "hash": { "type": "string" },
+            "updated_at": { "type": "string", "format": "date-time" },
+            "input_hash": { "type": "string", "description": "Hash of spec at time blueprint was generated." }
+          },
+          "additionalProperties": false
+        },
+        "fault_surface_map": {
+          "type": "object",
+          "required": ["file", "hash", "updated_at", "input_hash"],
+          "properties": {
+            "file": { "type": "string" },
+            "hash": { "type": "string" },
+            "updated_at": { "type": "string", "format": "date-time" },
+            "input_hash": { "type": "string", "description": "Hash of blueprint at time fault surface map was produced." }
+          },
+          "additionalProperties": false
+        },
+        "codebase": {
+          "type": "object",
+          "required": ["hash", "updated_at", "input_hash"],
+          "properties": {
+            "hash": { "type": "string", "description": "Hash of generated codebase directory." },
+            "updated_at": { "type": "string", "format": "date-time" },
+            "input_hash": { "type": "string", "description": "Hash of blueprint at time codebase was generated." }
+          },
+          "additionalProperties": false
+        },
+        "scenarios": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["scenario_id", "file", "hash", "updated_at", "input_hash"],
+            "properties": {
+              "scenario_id": { "type": "string" },
+              "file": { "type": "string" },
+              "hash": { "type": "string" },
+              "updated_at": { "type": "string", "format": "date-time" },
+              "input_hash": { "type": "string", "description": "Hash of codebase + fault_surface_map at injection time." }
+            },
+            "additionalProperties": false
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

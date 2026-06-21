@@ -1,0 +1,63 @@
+version: "1.0"
+description: >
+  Observability Model defines what signals are synthesized alongside
+  a fault scenario. Controls what candidates can observe without reading code.
+
+signal_types:
+
+  logs:
+    description: Structured or unstructured log output from the system.
+    variants:
+      - stdout_plaintext
+      - structured_json
+      - rotating_file
+    attributes:
+      - timestamp
+      - level
+      - component
+      - message
+      - context_fields
+
+  metrics:
+    description: Numeric time-series measurements of system behavior.
+    variants:
+      - counters
+      - gauges
+      - histograms
+    examples:
+      - request_count
+      - error_rate
+      - queue_depth
+      - processing_latency_p99
+
+  traces:
+    description: Distributed request traces across components.
+    variants:
+      - single_service_spans
+      - multi_service_traces
+    attributes:
+      - trace_id
+      - span_id
+      - parent_span
+      - duration_ms
+      - status
+
+  alerts:
+    description: Pre-written operational alerts triggered by the fault.
+    variants:
+      - threshold_breach
+      - anomaly_detection
+      - error_rate_spike
+    attributes:
+      - alert_name
+      - severity
+      - fired_at
+      - labels
+
+  operational_artifacts:
+    description: Supplementary context available to candidates.
+    variants:
+      - incident_ticket
+      - runbook_excerpt
+      - recent_deploy_log
+      - environment_diff

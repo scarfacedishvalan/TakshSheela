@@ -1,0 +1,15 @@
+version: "1.0"
+description: Index of all problems in the TakshSheela problem library.
+
+# Status progression:
+#   ideation → spec_draft → spec_ready → blueprint_draft → blueprint_approved
+#   → fault_surface_map_done → codebase_generated → scenarios_done → validated
+
+problems:
+  - id: prob-001
+    status: codebase_generated
+    domain: background_worker
+    fault_families_supported: [coordination, state, resource, temporal]
+    scenario_count: 6
+    codebase_path: codes/prob-001/canonical
+    notes: "Batch aggregation worker. Six scenario families across concurrency, state, and resource fault classes."

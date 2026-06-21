@@ -1,0 +1,61 @@
+version: "1.0"
+description: >
+  Mechanism-based fault taxonomy. Classifies bugs by causal mechanism,
+  not by surface symptom. Each family contains sub-types used during
+  fault ideation and scenario generation.
+
+families:
+
+  semantic:
+    description: Logic is structurally valid but semantically wrong.
+    subtypes:
+      - off_by_one
+      - wrong_comparison_operator
+      - incorrect_default_value
+      - inverted_boolean
+      - wrong_algorithm
+
+  state:
+    description: System state becomes inconsistent or corrupt over time.
+    subtypes:
+      - stale_cache
+      - partial_update
+      - missing_reset
+      - shared_mutable_state
+      - ordering_dependency
+
+  temporal:
+    description: Failures caused by timing, ordering, or duration assumptions.
+    subtypes:
+      - race_condition
+      - timeout_misconfiguration
+      - retry_storm
+      - clock_skew
+      - premature_termination
+
+  coordination:
+    description: Failures in how components communicate or synchronize.
+    subtypes:
+      - deadlock
+      - livelock
+      - missed_signal
+      - protocol_mismatch
+      - callback_ordering
+
+  resource:
+    description: Failures in acquisition, release, or exhaustion of resources.
+    subtypes:
+      - memory_leak
+      - file_descriptor_leak
+      - connection_pool_exhaustion
+      - unbounded_queue
+      - disk_space_exhaustion
+
+  contract:
+    description: Violations of implicit or explicit interface contracts.
+    subtypes:
+      - schema_mismatch
+      - null_propagation
+      - unexpected_exception_type
+      - invariant_violation
+      - api_version_drift

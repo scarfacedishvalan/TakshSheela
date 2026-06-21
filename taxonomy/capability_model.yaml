@@ -1,0 +1,54 @@
+version: "1.0"
+description: >
+  Engineering capability dimensions assessed by TakshSheela scenarios.
+  Each dimension maps to observable candidate behaviors during debugging.
+
+dimensions:
+
+  debugging_discipline:
+    description: Does the candidate follow a systematic debugging process?
+    indicators:
+      - forms hypothesis before changing code
+      - uses logs and metrics before guessing
+      - narrows scope before diving deep
+      - validates fix before closing
+
+  code_navigation:
+    description: Can the candidate orient quickly in an unfamiliar codebase?
+    indicators:
+      - identifies entry points without being told
+      - traces call graphs across modules
+      - locates configuration and data model
+      - reads tests to understand intent
+
+  systems_thinking:
+    description: Does the candidate reason about the system as a whole?
+    indicators:
+      - considers downstream effects of a change
+      - identifies component boundaries
+      - reasons about failure propagation
+      - asks about deployment and environment
+
+  concurrency_reasoning:
+    description: Can the candidate detect and reason about concurrency faults?
+    indicators:
+      - identifies shared state
+      - reasons about interleaving
+      - understands locks, queues, and async primitives
+      - can reproduce or explain non-deterministic failures
+
+  root_cause_analysis:
+    description: Does the candidate distinguish root cause from symptoms?
+    indicators:
+      - does not stop at first visible error
+      - traces causality back through the system
+      - can articulate why the bug exists, not just what it does
+      - proposes fix that addresses cause, not symptom
+
+  observability_usage:
+    description: Does the candidate use available observability effectively?
+    indicators:
+      - reads logs before reading code
+      - interprets metrics and traces correctly
+      - correlates signals across subsystems
+      - uses timestamps to reconstruct event order

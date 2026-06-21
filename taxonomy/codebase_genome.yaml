@@ -1,0 +1,46 @@
+version: "1.0"
+description: >
+  Codebase Genome defines the structural and behavioral characteristics
+  of synthetic codebases. Drives blueprint generation and realism mutation.
+
+axes:
+
+  domain:
+    description: The business or technical domain the codebase simulates.
+    values:
+      - data_pipeline
+      - api_service
+      - background_worker
+      - cli_tool
+      - event_driven_system
+      - distributed_cache
+      - scheduler
+
+  scale:
+    description: Perceived operational scale of the system.
+    values:
+      - small       # single process, simple config
+      - medium      # multi-component, some infra
+      - large       # distributed, stateful, observable
+
+  maturity:
+    description: How evolved the codebase feels — affects code quality and tech debt.
+    values:
+      - greenfield    # clean, recent, low debt
+      - mid_life      # some legacy patterns, mixed quality
+      - legacy        # high debt, workarounds, survival code
+
+  team_style:
+    description: Implied team conventions visible in the code.
+    values:
+      - disciplined   # consistent style, good naming, docstrings
+      - mixed         # inconsistent, multiple contributors visible
+      - cowboy        # minimal structure, pragmatic hacks
+
+  observability_level:
+    description: How much operational visibility the codebase provides.
+    values:
+      - none          # no logging or metrics
+      - basic         # print/logging only
+      - structured    # structured logs, basic metrics
+      - full          # structured logs, metrics, traces, alerts
