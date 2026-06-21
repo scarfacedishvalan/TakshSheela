@@ -148,6 +148,71 @@ Contains:
 
 ---
 
+# Agent Architecture
+
+Scenario injection is coordinated by three specialized agents operating under a
+protocol-switching model. VSCode custom agents do not support true programmatic
+subagent invocation, so the orchestrator manages workflow state and issues explicit
+handoff instructions to the user to load the appropriate agent at each phase boundary.
+
+```
+Scenario Orchestrator
+  │
+  ├─► [handoff] Patch Injection Agent
+  │     reasoning: scenario understanding, code inspection,
+  │                mutation planning, patch generation
+  │     output: patch.diff + patch_meta.json + reasoning summary
+  │
+  ├─► [handoff] Mutation Executor Agent
+  │     execution: workspace copy, apply_patch.py, validate_patch.py,
+  │                failure classification
+  │     output: structured pass/fail execution report
+  │
+  └─► [handoff] Patch Validator Agent  (optional)
+        evaluation: psychometric quality, candidate perspective,
+                    difficulty calibration
+        output: APPROVE / APPROVE WITH MINOR CHANGES / REJECT
+```
+
+## Orchestrator
+
+Top-level control plane. Owns workflow state across all phases, approval gates between
+phases, handoff emission, and retry decisions. Does not generate patches or invoke tools.
+
+Located at: `.github/agents/orchestrator.agent.md`
+
+## Patch Injection Agent
+
+Reasoning-only. Reads scenario artifacts and canonical code, identifies mutation points,
+produces patch.diff and patch_meta.json. Stops before any tool invocation.
+
+Located at: `.github/agents/patch_injection.agent.md`
+
+## Mutation Executor Agent
+
+Execution-only. Receives patch artifacts, creates workspace copy, runs apply_patch.py
+and validate_patch.py, classifies failures. Does not reason about fault semantics.
+
+Located at: `.github/agents/mutation_executor.agent.md`
+
+## Patch Validator Agent
+
+Quality evaluation only. Evaluates a materialized scenario from the candidate perspective.
+Assesses solvability, observability, and capability coverage. Does not inject faults.
+
+Located at: `.github/agents/patch_validator.agent.md`
+
+## Protocol Switching
+
+When a phase boundary is reached, the orchestrator emits a structured HANDOFF block
+naming the agent, its input file, and the required inputs. When the agent completes,
+it emits a structured RETURN block. The orchestrator resumes from the returned output.
+
+This model gives the orchestrator full workflow visibility without requiring a runtime
+framework or true multi-agent invocation.
+
+---
+
 # Selective Rebuild Philosophy
 
 Lineage is tracked in `lineage.yaml` per problem using content hashes.

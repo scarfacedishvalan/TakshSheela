@@ -165,3 +165,56 @@ scenarios are independently injectable with no cross-contamination.
 
 Costs: more artifacts per problem; fault surface map adds a pipeline stage; scenario
 specs require their own ideation and quality review.
+
+---
+
+## ADR-006
+
+### Context
+
+The original patch injection agent handled the full scenario injection workflow in a
+single agent: scenario understanding, code inspection, mutation planning, workspace
+materialization, patch application, validation, retry logic, and final reporting.
+This made the agent overloaded and difficult to reason about — reasoning-heavy steps
+(mutation design) and execution-heavy steps (tool invocation, retry loops) were
+interleaved with no clean boundaries.
+
+A second agent (mutation.agent.md) was introduced to cover Steps 1–3 (reasoning only)
+but duplicated the same instructions as the original agent without eliminating them.
+No orchestrator existed to coordinate the two agents or manage handoffs.
+
+### Options Considered
+
+* Refactor single agent into clearly separated sections with stronger internal headers
+* Introduce a true multi-agent runtime with programmatic invocation
+* Orchestrator + specialized subagents with protocol switching for VSCode compatibility
+
+### Decision
+
+Adopt orchestrator + specialized subagents with protocol switching.
+
+Four agents, each with a single responsibility:
+
+1. **Orchestrator** — workflow state, approval gates, handoff emission, retry decisions
+2. **Patch Injection Agent** — reasoning only: scenario understanding, code inspection, mutation planning, patch generation
+3. **Mutation Executor Agent** — execution only: workspace copy, apply_patch.py, validate_patch.py, failure classification
+4. **Patch Validator Agent** — quality evaluation only: candidate perspective, solvability, capability coverage
+
+Because VSCode custom agents do not support programmatic subagent invocation, the
+orchestrator uses a protocol-switching model: it emits structured HANDOFF blocks that
+instruct the user to load the appropriate agent, and resumes when the agent returns a
+structured RETURN block.
+
+The redundant mutation.agent.md was deleted — it is fully superseded by the refactored
+patch_injection.agent.md.
+
+### Tradeoffs
+
+Gains: each agent has a single clear responsibility; reasoning and execution are never
+interleaved; the orchestrator owns all retry logic so no agent needs to decide whether
+to regenerate its own output; the protocol-switching model works within VSCode
+constraints without requiring a runtime framework.
+
+Costs: each scenario injection requires the user to manually switch agent context at
+phase boundaries; the orchestrator cannot enforce handoffs programmatically — the
+workflow relies on the user following the emitted HANDOFF instructions.
