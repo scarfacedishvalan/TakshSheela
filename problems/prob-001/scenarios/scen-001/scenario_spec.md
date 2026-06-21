@@ -60,11 +60,11 @@ For reliable fault expression, this scenario requires a stress job file:
 - All jobs in the same 1–2 categories to maximise contention on a small key set
 
 A suitable stress job file should be created at:
-`codes/prob-001/scenarios/scen-001/stress_jobs.json`
+`problems/prob-001/scenarios/scen-001/stress_jobs.json`
 
 Run command for the assessment:
 ```
-python run_batch.py codes/prob-001/scenarios/scen-001/stress_jobs.json --threads 8
+python run_batch.py problems/prob-001/scenarios/scen-001/stress_jobs.json --threads 8
 ```
 
 With this configuration the discrepancy is reliably non-zero across repeated runs.
