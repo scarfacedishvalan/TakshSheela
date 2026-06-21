@@ -1,180 +1,195 @@
 """
-apply_patch.py — Apply a mutation patch to create a workspace codebase.
+apply_patch.py — Apply a scenario fault patch to a problem workspace.
 
 Usage:
-    python tools/apply_patch.py <patch_file> [--repo <repo_root>] [--force]
+    python tools/apply_patch.py \
+        --problem  <problem_id> \
+        --scenario <scenario_id> \
+        --patch    <path_to_patch.diff> \
+        --message  "<realistic commit message>" \
+        [--force]
 
-The patch file must use repository-relative paths produced by the Patch
-Injection Agent (a/codes/<problem_id>/canonical/... → b/codes/_workspace/...).
+Precondition:
+    <workspace_root>/<problem_id>/ must be a git repo with a 'canonical' branch,
+    created by seed_canonical.py.
 
-Steps performed:
-  1. Parse the patch to determine the canonical source and workspace destination.
-  2. Copy the canonical directory to the workspace destination.
-  3. Apply the diff hunks to the workspace files.
+Checks performed before any git operation:
+    1. Patch file exists and is non-empty
+    2. Parseable as unified diff (has diff --git, ---, +++, @@ headers)
+    3. All paths are repo-relative (no absolute paths, no codes/... prefix)
+    4. File and hunk counts match patch_meta.json
+    5. Every targeted file exists in the canonical working tree
+
+Hard gate:
+    6. git apply --check  — authoritative context-line verification
+       Any failure exits 1 immediately. No retry, no LLM involvement.
+
+On success:
+    Creates branch <scenario_id> off canonical.
+    Applies patch, removes patch.diff, commits with --message.
 """
 
 import argparse
+import json
+import re
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
 
-# ---------------------------------------------------------------------------
-# Unified-diff parser
-# ---------------------------------------------------------------------------
-
-def _parse_range(range_str):
-    """Parse '-12,5' or '+12,5' into (start, count). Count defaults to 1."""
-    s = range_str.lstrip("-+")
-    if "," in s:
-        start, count = s.split(",", 1)
-        return int(start), int(count)
-    return int(s), 1
-
-
-def parse_unified_diff(patch_text):
-    """
-    Parse a unified diff (git format) into a list of file-patch dicts:
-
-        {
-            'a': 'codes/prob-001/canonical/nightproc/store.py',  # old path
-            'b': 'codes/_workspace/prob-001-scen-001/nightproc/store.py',  # new path
-            'hunks': [
-                {
-                    'old_start': 31,   # 1-indexed line in old file
-                    'lines': [' ctx', '-removed', '+added', ...]
-                },
-                ...
-            ]
-        }
-    """
-    file_patches = []
-    current = None
-    hunk = None
-
-    for raw_line in patch_text.splitlines():
-        if raw_line.startswith("diff --git "):
-            if current is not None:
-                if hunk is not None:
-                    current["hunks"].append(hunk)
-                    hunk = None
-                file_patches.append(current)
-            current = {"a": None, "b": None, "hunks": []}
-
-        elif raw_line.startswith("--- ") and current is not None:
-            path = raw_line[4:].split("\t")[0].strip()
-            current["a"] = path[2:] if path.startswith("a/") else (None if path == "/dev/null" else path)
-
-        elif raw_line.startswith("+++ ") and current is not None:
-            path = raw_line[4:].split("\t")[0].strip()
-            current["b"] = path[2:] if path.startswith("b/") else (None if path == "/dev/null" else path)
-
-        elif raw_line.startswith("@@ ") and current is not None:
-            if hunk is not None:
-                current["hunks"].append(hunk)
-            # @@ -old_start[,old_count] +new_start[,new_count] @@
-            at_parts = raw_line.split("@@")
-            range_part = at_parts[1].strip()
-            old_str, new_str = range_part.split(" ", 1)
-            old_start, _ = _parse_range(old_str)
-            hunk = {"old_start": old_start, "lines": []}
-
-        elif hunk is not None:
-            # Diff body line: space (context), - (removed), + (added)
-            if raw_line and raw_line[0] in (" ", "-", "+"):
-                hunk["lines"].append(raw_line)
-            # Lines like 'index ...', 'new file mode', etc. are silently skipped.
-
-    # Flush last patch
-    if current is not None:
-        if hunk is not None:
-            current["hunks"].append(hunk)
-        file_patches.append(current)
-
-    return file_patches
+CONFIG_PATH = Path(__file__).parent / "config.json"
 
 
 # ---------------------------------------------------------------------------
-# Hunk application
+# Config and git helpers
 # ---------------------------------------------------------------------------
 
-def apply_file_patch(file_path: Path, file_patch: dict) -> None:
-    """
-    Apply all hunks of *file_patch* to *file_path* in-place.
+def load_config():
+    if not CONFIG_PATH.exists():
+        print(f"ERROR: config not found: {CONFIG_PATH}", file=sys.stderr)
+        sys.exit(1)
+    with open(CONFIG_PATH) as f:
+        return json.load(f)
 
-    All hunks are applied in a single pass over the original line list so that
-    old_start values (which reference the original file) remain valid
-    throughout.
-    """
-    if file_path.exists():
-        # Normalise to LF so that line counts are predictable.
-        lines = file_path.read_text(encoding="utf-8").splitlines()
-    else:
-        lines = []
 
-    result = []
-    old_pos = 0  # 0-indexed cursor into the original lines list
+def git(args, cwd, check=True):
+    result = subprocess.run(
+        ["git"] + args,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+    )
+    if check and result.returncode != 0:
+        print(result.stderr.strip(), file=sys.stderr)
+        sys.exit(1)
+    return result
 
-    for hunk in file_patch["hunks"]:
-        hunk_old_start = hunk["old_start"] - 1  # convert to 0-indexed
 
-        # Copy original lines that precede this hunk unchanged.
-        result.extend(lines[old_pos:hunk_old_start])
-        old_pos = hunk_old_start
-
-        for hline in hunk["lines"]:
-            if not hline:
-                continue
-            marker = hline[0]
-            payload = hline[1:]
-            if marker == " ":
-                # Context line — take from original to preserve exact content.
-                result.append(lines[old_pos] if old_pos < len(lines) else payload)
-                old_pos += 1
-            elif marker == "-":
-                # Removed line — advance original cursor, emit nothing.
-                old_pos += 1
-            elif marker == "+":
-                # Added line — emit payload, do not advance original cursor.
-                result.append(payload)
-
-    # Append any original lines that follow the last hunk.
-    result.extend(lines[old_pos:])
-
-    file_path.parent.mkdir(parents=True, exist_ok=True)
-    file_path.write_text("\n".join(result) + "\n", encoding="utf-8")
+def hard_stop(message):
+    print(f"\nHARD STOP: {message}", file=sys.stderr)
+    sys.exit(1)
 
 
 # ---------------------------------------------------------------------------
-# Path helpers
+# Pre-flight checks
 # ---------------------------------------------------------------------------
 
-def _extract_segment(path_str: str, marker: str):
-    """
-    Return the Path prefix up to and including the component after *marker*.
-
-    e.g. _extract_segment('codes/_workspace/prob-001-scen-001/foo.py', '_workspace')
-         → PurePath('codes/_workspace/prob-001-scen-001')
-    """
-    parts = Path(path_str).parts
-    for i, part in enumerate(parts):
-        if part == marker and i + 1 < len(parts):
-            return Path(*parts[: i + 2])
-    return None
+def check_1_exists_nonempty(patch_path):
+    """Patch file must exist and be non-empty."""
+    if not patch_path.exists():
+        hard_stop(f"patch file not found: {patch_path}")
+    if patch_path.stat().st_size == 0:
+        hard_stop(f"patch file is empty: {patch_path}")
+    return patch_path.read_text(encoding="utf-8")
 
 
-def _extract_canonical_root(path_str: str):
-    """
-    Return the Path prefix up to and including 'canonical'.
+def check_2_valid_diff_structure(patch_text):
+    """Must contain at least one valid unified diff block."""
+    lines = patch_text.splitlines()
+    has_diff_header = any(l.startswith("diff --git ") for l in lines)
+    has_hunk        = any(l.startswith("@@ ")         for l in lines)
+    has_minus       = any(l.startswith("--- ")        for l in lines)
+    has_plus        = any(l.startswith("+++ ")        for l in lines)
 
-    e.g. 'codes/prob-001/canonical/nightproc/store.py'
-         → PurePath('codes/prob-001/canonical')
-    """
-    parts = Path(path_str).parts
-    for i, part in enumerate(parts):
-        if part == "canonical":
-            return Path(*parts[: i + 1])
-    return None
+    if not has_diff_header:
+        hard_stop(
+            "patch contains no 'diff --git' header.\n"
+            "The patch_injection agent may have returned prose or JSON instead of a diff."
+        )
+    if not (has_hunk and has_minus and has_plus):
+        hard_stop(
+            "patch is missing required diff headers (---, +++, @@).\n"
+            "Patch appears to be malformed or truncated."
+        )
+
+
+def check_3_repo_relative_paths(patch_text):
+    """All --- and +++ paths must be repo-relative with no forbidden prefixes."""
+    FORBIDDEN = [
+        # Windows absolute paths
+        (r"^[ab]/[A-Za-z]:[/\\]",        "absolute Windows path"),
+        # Unix absolute paths
+        (r"^[ab]//",                       "absolute Unix path"),
+        # Full repo-internal prefix violating PATCH_CONTRACT
+        (r"^[ab]/codes/",                  "full repo path — must be canonical-relative (e.g. a/nightproc/store.py)"),
+        # Old internal workspace path
+        (r"_workspace",                    "workspace path in diff — forbidden"),
+        # Backslashes (git diff always uses forward slashes)
+        (r"\\",                            "backslash in path — git diff uses forward slashes only"),
+    ]
+
+    for line in patch_text.splitlines():
+        if not (line.startswith("--- ") or line.startswith("+++ ")):
+            continue
+        path_part = line[4:].split("\t")[0].strip()
+        if path_part in ("/dev/null", "dev/null"):
+            continue
+        for pattern, reason in FORBIDDEN:
+            if re.search(pattern, path_part):
+                hard_stop(
+                    f"invalid path in patch: {path_part!r}\n"
+                    f"  reason : {reason}\n"
+                    f"  correct: a/nightproc/store.py  (repo-relative, forward slashes)"
+                )
+
+
+def check_4_hunk_count(patch_text, patch_path):
+    """Actual file and hunk counts must match patch_meta.json."""
+    meta_path = patch_path.parent / "patch_meta.json"
+    if not meta_path.exists():
+        hard_stop(
+            f"patch_meta.json not found: {meta_path}\n"
+            "The patch_injection agent must produce patch_meta.json alongside patch.diff."
+        )
+
+    with open(meta_path) as f:
+        try:
+            meta = json.load(f)
+        except json.JSONDecodeError as e:
+            hard_stop(f"patch_meta.json is not valid JSON: {e}")
+
+    for field in ("expected_files_changed", "expected_hunks"):
+        if field not in meta:
+            hard_stop(f"patch_meta.json missing required field: {field!r}")
+
+    lines = patch_text.splitlines()
+    actual_files = sum(1 for l in lines if l.startswith("diff --git "))
+    actual_hunks = sum(1 for l in lines if l.startswith("@@ "))
+
+    if actual_files != meta["expected_files_changed"]:
+        hard_stop(
+            f"patch changes {actual_files} file(s); patch_meta.json expects {meta['expected_files_changed']}.\n"
+            "This may be a multi-fault patch or an incomplete patch — regenerate."
+        )
+    if actual_hunks != meta["expected_hunks"]:
+        hard_stop(
+            f"patch has {actual_hunks} hunk(s); patch_meta.json expects {meta['expected_hunks']}.\n"
+            "Patch structure does not match declared intent — regenerate."
+        )
+
+    return meta
+
+
+def check_5_target_files_exist(patch_text, workspace):
+    """Every file targeted by --- must exist in the canonical working tree."""
+    missing = []
+    for line in patch_text.splitlines():
+        if not line.startswith("--- "):
+            continue
+        path_part = line[4:].split("\t")[0].strip()
+        if path_part in ("/dev/null", "dev/null"):
+            continue  # new file addition — no existing source required
+        rel = path_part[2:] if path_part.startswith("a/") else path_part
+        if not (workspace / rel).exists():
+            missing.append(rel)
+
+    if missing:
+        hard_stop(
+            "patch targets file(s) that do not exist in canonical:\n"
+            + "\n".join(f"  {m}" for m in missing)
+            + "\nCheck the injection site in scenario_spec.md and regenerate the patch."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -183,112 +198,131 @@ def _extract_canonical_root(path_str: str):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Apply a mutation patch to create a workspace codebase.",
+        description="Apply a scenario fault patch to a problem workspace.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
-    parser.add_argument("patch", help="Path to the .patch file")
-    parser.add_argument(
-        "--repo",
-        default=None,
-        help=(
-            "Repository root directory. "
-            "Defaults to the parent of the directory containing this script."
-        ),
-    )
-    parser.add_argument(
-        "--force",
-        action="store_true",
-        help="Remove and recreate the workspace directory if it already exists.",
-    )
+    parser.add_argument("--problem",  required=True, help="Problem ID, e.g. prob-001")
+    parser.add_argument("--scenario", required=True, help="Scenario ID, e.g. scen-001")
+    parser.add_argument("--patch",    required=True, help="Path to patch.diff (absolute or relative to takshsheela_root)")
+    parser.add_argument("--message",  required=True, help="Realistic commit message for the mutation commit")
+    parser.add_argument("--force",    action="store_true", help="Delete and recreate scenario branch if it exists")
     args = parser.parse_args()
 
-    patch_path = Path(args.patch).resolve()
-    if not patch_path.exists():
-        print(f"ERROR: patch file not found: {patch_path}", file=sys.stderr)
-        sys.exit(1)
+    cfg = load_config()
+    workspace_root   = Path(cfg["workspace_root"])
+    takshsheela_root = Path(cfg["takshsheela_root"])
 
-    # Determine repository root.
-    repo_root = (
-        Path(args.repo).resolve()
-        if args.repo
-        else Path(__file__).resolve().parent.parent
-    )
+    workspace = workspace_root / args.problem
 
-    patch_text = patch_path.read_text(encoding="utf-8")
-    file_patches = parse_unified_diff(patch_text)
+    # Resolve patch path
+    patch_path = Path(args.patch)
+    if not patch_path.is_absolute():
+        patch_path = takshsheela_root / patch_path
+    patch_path = patch_path.resolve()
 
-    if not file_patches:
-        print("ERROR: no file patches found in patch file.", file=sys.stderr)
-        sys.exit(1)
+    # --------------- Workspace validation ---------------
 
-    # Derive workspace destination from the first b/ path.
-    b_paths = [fp["b"] for fp in file_patches if fp.get("b")]
-    a_paths = [fp["a"] for fp in file_patches if fp.get("a")]
-
-    if not b_paths:
-        print("ERROR: could not determine workspace destination from patch headers.", file=sys.stderr)
-        sys.exit(1)
-    if not a_paths:
-        print("ERROR: could not determine canonical source from patch headers.", file=sys.stderr)
-        sys.exit(1)
-
-    workspace_rel = _extract_segment(b_paths[0], "_workspace")
-    canonical_rel = _extract_canonical_root(a_paths[0])
-
-    if workspace_rel is None:
-        print(
-            f"ERROR: expected '_workspace/<name>' in b/ path but got: {b_paths[0]}",
-            file=sys.stderr,
+    if not workspace.exists():
+        hard_stop(
+            f"workspace not found: {workspace}\n"
+            "Run seed_canonical.py --problem {args.problem} first."
         )
-        sys.exit(1)
-    if canonical_rel is None:
-        print(
-            f"ERROR: expected 'canonical' component in a/ path but got: {a_paths[0]}",
-            file=sys.stderr,
+    if not (workspace / ".git").exists():
+        hard_stop(f"workspace exists but is not a git repo: {workspace}")
+
+    result = git(["branch", "--list", "canonical"], cwd=workspace, check=False)
+    if "canonical" not in result.stdout:
+        hard_stop(
+            f"'canonical' branch not found in {workspace}.\n"
+            "Run seed_canonical.py --problem {args.problem} first."
         )
-        sys.exit(1)
 
-    workspace_dir = repo_root / workspace_rel
-    canonical_dir = repo_root / canonical_rel
+    # --------------- Pre-flight checks 1–4 ---------------
+    # These run before touching the repo.
 
-    if not canonical_dir.exists():
-        print(f"ERROR: canonical directory not found: {canonical_dir}", file=sys.stderr)
-        sys.exit(1)
+    print("[ 1/6 ] Checking patch file exists and is non-empty...")
+    patch_text = check_1_exists_nonempty(patch_path)
+    print("        OK")
 
-    # Step 1 — copy canonical → workspace.
-    if workspace_dir.exists():
+    print("[ 2/6 ] Checking unified diff structure...")
+    check_2_valid_diff_structure(patch_text)
+    print("        OK")
+
+    print("[ 3/6 ] Checking path conventions...")
+    check_3_repo_relative_paths(patch_text)
+    print("        OK")
+
+    print("[ 4/6 ] Checking hunk count against patch_meta.json...")
+    meta = check_4_hunk_count(patch_text, patch_path)
+    print(f"        OK  ({meta['expected_files_changed']} file(s), {meta['expected_hunks']} hunk(s))")
+
+    # --------------- Checkout canonical for checks 5–6 ---------------
+
+    print(f"\nChecking out canonical...")
+    git(["checkout", "canonical"], cwd=workspace)
+
+    print("[ 5/6 ] Checking target files exist in canonical...")
+    check_5_target_files_exist(patch_text, workspace)
+    print("        OK")
+
+    # --------------- Scenario branch ---------------
+
+    existing = git(["branch", "--list", args.scenario], cwd=workspace, check=False)
+    if args.scenario in existing.stdout:
         if args.force:
-            shutil.rmtree(workspace_dir)
-            print(f"Removed existing workspace: {workspace_rel}")
+            git(["branch", "-D", args.scenario], cwd=workspace)
+            print(f"\nDeleted existing branch: {args.scenario}")
         else:
-            print(f"ERROR: workspace already exists: {workspace_dir}", file=sys.stderr)
-            print("Use --force to overwrite.", file=sys.stderr)
-            sys.exit(1)
+            hard_stop(
+                f"branch '{args.scenario}' already exists.\n"
+                "Use --force to overwrite."
+            )
 
-    shutil.copytree(canonical_dir, workspace_dir)
-    print(f"Copied  {canonical_rel}  →  {workspace_rel}")
+    git(["checkout", "-b", args.scenario], cwd=workspace)
+    print(f"Created branch: {args.scenario}")
 
-    # Step 2 — apply each file patch.
-    errors = []
-    for fp in file_patches:
-        b_path = fp.get("b")
-        if not b_path:
-            continue  # deleted file — skip
-        target = repo_root / b_path
-        try:
-            apply_file_patch(target, fp)
-            print(f"Patched {b_path}")
-        except Exception as exc:  # noqa: BLE001
-            msg = f"FAILED to patch {b_path}: {exc}"
-            print(msg, file=sys.stderr)
-            errors.append(msg)
+    # Copy patch into workspace root (temporary — deleted before commit)
+    patch_dest = workspace / "patch.diff"
+    shutil.copy2(patch_path, patch_dest)
 
-    if errors:
-        print(f"\n{len(errors)} file(s) failed to patch.", file=sys.stderr)
-        sys.exit(1)
+    # --------------- Check 6: git apply --check (hard gate) ---------------
 
-    print(f"\nWorkspace ready: {workspace_dir}")
+    print("[ 6/6 ] Running git apply --check (authoritative gate)...")
+    result = git(["apply", "--check", "patch.diff"], cwd=workspace, check=False)
+
+    if result.returncode != 0:
+        # Clean up: remove patch, delete branch, return to canonical
+        patch_dest.unlink(missing_ok=True)
+        git(["checkout", "canonical"], cwd=workspace)
+        git(["branch", "-D", args.scenario], cwd=workspace)
+        print(file=sys.stderr)
+        print(result.stderr.strip(), file=sys.stderr)
+        hard_stop(
+            "git apply --check failed — patch does not apply cleanly to canonical.\n"
+            "The patch must be regenerated. Do not attempt LLM-based repair."
+        )
+
+    print("        OK")
+
+    # --------------- Apply, clean up, commit ---------------
+
+    print("\nApplying patch...")
+    git(["apply", "patch.diff"], cwd=workspace)
+
+    # Remove patch.diff — no evidence of injection in the working tree
+    patch_dest.unlink()
+
+    git(["add", "-A"], cwd=workspace)
+    git(["commit", "-m", args.message], cwd=workspace)
+
+    # Report commit hash
+    log = git(["log", "--oneline", "-1"], cwd=workspace, check=False)
+
+    print(f"\nDone.")
+    print(f"  Workspace : {workspace}")
+    print(f"  Branch    : {args.scenario}")
+    print(f"  Commit    : {log.stdout.strip()}")
 
 
 if __name__ == "__main__":
