@@ -1,0 +1,7 @@
+{
+  "problem": "prob-001",
+  "scenario": "scen-001",
+  "patch": "problems/prob-001/scenarios/scen-001/patch.diff",
+  "message": "Remove unnecessary lock contention in accumulator",
+  "force": false
+}

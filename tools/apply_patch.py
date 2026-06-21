@@ -2,12 +2,16 @@
 apply_patch.py — Apply a scenario fault patch to the shared workspace git repo.
 
 Usage:
-    python tools/apply_patch.py \
-        --problem  <problem_id> \
-        --scenario <scenario_id> \
-        --patch    <path_to_patch.diff> \
-        --message  "<realistic commit message>" \
+    python tools/apply_patch.py                        # reads tools/run_config.json
+    python tools/apply_patch.py --problem prob-001 \   # CLI args override run_config.json
+        --scenario scen-001 \
+        --patch codes/prob-001/scenarios/scen-001/patch.diff \
+        --message "Remove unnecessary lock contention in accumulator" \
         [--force]
+
+Run config (tools/run_config.json):
+    Update this file and run with no arguments for the common case.
+    CLI arguments always take precedence over run_config.json values.
 
 Branch naming convention:
     <problem_id>--canonical   source branch (must exist, created by seed_canonical.py)
@@ -44,7 +48,8 @@ import sys
 from pathlib import Path
 
 
-CONFIG_PATH = Path(__file__).parent / "config.json"
+CONFIG_PATH     = Path(__file__).parent / "config.json"
+RUN_CONFIG_PATH = Path(__file__).parent / "run_config.json"
 
 
 # ---------------------------------------------------------------------------
@@ -198,18 +203,44 @@ def check_5_target_files_exist(patch_text, workspace):
 # Main
 # ---------------------------------------------------------------------------
 
+def load_run_config():
+    """Load run_config.json. Returns empty dict if file does not exist."""
+    if not RUN_CONFIG_PATH.exists():
+        return {}
+    with open(RUN_CONFIG_PATH) as f:
+        try:
+            return json.load(f)
+        except json.JSONDecodeError as e:
+            print(f"ERROR: run_config.json is not valid JSON: {e}", file=sys.stderr)
+            sys.exit(1)
+
+
 def main():
+    run_cfg = load_run_config()
+
     parser = argparse.ArgumentParser(
         description="Apply a scenario fault patch to the shared workspace git repo.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
-    parser.add_argument("--problem",  required=True, help="Problem ID, e.g. prob-001")
-    parser.add_argument("--scenario", required=True, help="Scenario ID, e.g. scen-001")
-    parser.add_argument("--patch",    required=True, help="Path to patch.diff (absolute or relative to takshsheela_root)")
-    parser.add_argument("--message",  required=True, help="Realistic commit message for the mutation commit")
-    parser.add_argument("--force",    action="store_true", help="Delete and recreate scenario branch if it exists")
+    parser.add_argument("--problem",  default=run_cfg.get("problem"),  help="Problem ID, e.g. prob-001")
+    parser.add_argument("--scenario", default=run_cfg.get("scenario"), help="Scenario ID, e.g. scen-001")
+    parser.add_argument("--patch",    default=run_cfg.get("patch"),    help="Path to patch.diff (absolute or relative to takshsheela_root)")
+    parser.add_argument("--message",  default=run_cfg.get("message"),  help="Realistic commit message for the mutation commit")
+    parser.add_argument("--force",    action="store_true",             help="Delete and recreate scenario branch if it exists")
     args = parser.parse_args()
+
+    # --force in run_config.json is honoured only if CLI did not set it
+    if not args.force and run_cfg.get("force"):
+        args.force = True
+
+    # Validate required fields — may come from run_config.json or CLI
+    missing = [f for f in ("problem", "scenario", "patch", "message") if not getattr(args, f)]
+    if missing:
+        parser.error(
+            f"missing required argument(s): {', '.join('--' + f for f in missing)}\n"
+            "Provide them via CLI or set them in tools/run_config.json."
+        )
 
     cfg = load_config()
     workspace        = Path(cfg["workspace_root"])
