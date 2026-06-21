@@ -2,89 +2,161 @@
 
 TakshSheela is a synthetic software debugging assessment generation platform.
 
-Its purpose is to generate realistic synthetic Python codebases and reusable debugging scenarios for evaluating software engineering capability across multiple dimensions, including debugging discipline, code navigation, systems thinking, concurrency reasoning, and root-cause analysis.
+Its purpose is to generate realistic synthetic Python codebases and reusable debugging
+scenarios for evaluating software engineering capability across multiple dimensions:
+debugging discipline, code navigation, systems thinking, concurrency reasoning, and
+root-cause analysis.
 
-The project aims to produce software systems that feel indistinguishable from real production codebases while remaining configurable, scalable, and reusable across assessment scenarios.
+The platform produces systems that feel indistinguishable from real production codebases
+while remaining configurable and reusable across many assessment scenarios.
 
 ---
 
 ## Core Goal
 
-Generate realistic debugging assessments that can differentiate between:
+Generate realistic debugging assessments that differentiate between:
 
-* weak engineers
-* average engineers
-* strong engineers
-* senior engineers
+- Weak engineers
+- Average engineers
+- Strong engineers
+- Senior engineers
 
-The platform must optimize for:
-
-* realism
-* diversity
-* scenario scalability
-* difficulty calibration
-* psychometric validity
-* anti-coaching robustness
+Optimised for: realism, scenario scalability, difficulty calibration, and
+anti-coaching robustness.
 
 ---
 
 ## Generation Pipeline
 
-TakshSheela uses an artifact-driven generation pipeline:
+TakshSheela treats assessment generation as a compiler pipeline. Each stage transforms
+artifacts into more concrete artifacts. The pipeline for one problem looks like:
 
-```text
-spec → blueprint → IR → codebase → fault scenario → assessment
+```
+spec → blueprint → fault surface map → canonical codebase
+                          ↓                     ↓
+                    [scenario spec] → fault injection → assessment
 ```
 
-Artifacts are the source of truth across pipeline stages.
+A **canonical codebase** is always correct — it contains no active faults. It supports
+multiple scenario variants. Each scenario injects exactly one fault into a copy of the
+canonical codebase.
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for a detailed description of each stage.
 
 ---
 
-## Repository Philosophy
+## Repository Structure
 
-TakshSheela treats generation as a compiler problem.
+```
+TakshSheela/
+│
+├── problems/                   Problem definitions
+│   ├── manifest.yaml           Index of all problems and their pipeline status
+│   └── prob-001/               One problem per directory
+│       ├── ideation.md         Level 1 — free-form system character sketch
+│       ├── spec.md             Level 2 — structured spec with frontmatter
+│       ├── blueprint.md        Level 2 — architecture artifact; drives code generation
+│       ├── fault_surface_map.md  Level 2 — concrete injection targets per fault surface
+│       └── scenarios/
+│           └── scen-001/
+│               ├── scenario_spec.md    Fault definition and injection instructions
+│               └── incident_brief.md  Candidate-facing problem statement
+│
+├── codes/                      Generated codebases
+│   └── prob-001/
+│       └── canonical/          Correct implementation; no active faults
+│
+├── taxonomy/                   Shared classification vocabulary
+│   ├── failure_mechanisms.yaml   6-family fault taxonomy (coordination, state, …)
+│   ├── capability_model.yaml     6-axis candidate capability model
+│   ├── codebase_genome.yaml      Axes for describing codebase character
+│   └── observability_model.yaml  Signal types available in scenarios
+│
+├── schemas/                    JSON Schema for Level 3 artifacts
+│   ├── fault_scenario.schema.json
+│   └── lineage.schema.json
+│
+├── prompts/                    LLM prompt templates per pipeline stage
+│   ├── blueprint_generation/
+│   ├── critique/
+│   ├── fault_ideation/
+│   └── scenario_packaging/
+│
+├── templates/                  Artifact templates
+│   ├── spec_template.md
+│   ├── blueprint_template.md
+│   └── fault_brainstorm_template.md
+│
+├── concepts/                   Reference material on fault families
+│   ├── concurrency/
+│   ├── state_management/
+│   └── resource_lifecycle/
+│
+├── ARCHITECTURE.md             Pipeline stage definitions and artifact contracts
+├── DECISIONS.md                Architecture decision records (ADR-001 – ADR-005)
+└── ROADMAP.md                  Phase-by-phase progress tracker
+```
 
-LLMs are used for:
+---
 
-* architecture reasoning
-* planning
-* fault ideation
-* scenario generation
+## Artifact Fidelity Model
 
-Deterministic software is used for:
+Artifacts are produced at three fidelity levels depending on how much structure is
+appropriate for the stage:
 
-* schema validation
-* orchestration
-* artifact lineage
-* selective rebuild
-* dependency management
+| Level | Format | Used for |
+|---|---|---|
+| 1 — Soft | Free-form markdown | Ideation, brainstorm, fault divergence |
+| 2 — Semi-structured | Markdown with YAML frontmatter | Spec, blueprint, scenario spec, surface map |
+| 3 — Hard | Schema-validated YAML / JSON | Fault candidates, lineage hashes |
+
+Early stages are intentionally unstructured. Schema validation is only applied where
+machine consumption requires it.
 
 ---
 
 ## Major Concepts
 
-### Canonical Codebase
+**Spec** — defines what kind of system to generate and which fault families it must
+architecturally support. Fault surfaces are declared here as requirements so that
+the blueprint cannot produce a system where injection is architecturally impossible.
 
-A reusable synthetic software system serving as a base for multiple debugging scenarios.
+**Blueprint** — authoritative architecture document. Defines subsystems, project
+structure, data model, logging schema, and fault surface locations. Drives code
+generation directly. Must pass a critique review before the codebase is generated.
 
-### Blueprint
+**Canonical Codebase** — a correct, runnable Python codebase generated from the
+blueprint. Contains fault surfaces as latent structural characteristics, never as
+active bugs. Shared across all scenarios for the same problem.
 
-A structured architecture specification describing system design before code generation.
+**Fault Surface Map** — maps each declared fault surface to its concrete module,
+function, and injection type in the generated codebase.
 
-### IR
+**Scenario Spec** — selects one fault surface, specifies the injection, and defines
+difficulty calibration across candidate levels.
 
-Intermediate representation compiled from blueprint into machine-readable structured artifacts.
+**Incident Brief** — candidate-facing problem statement in operational voice. States
+a concrete observable symptom without naming the fault family or location.
 
-### Scenario
+**Assessment** — a fault-injected codebase variant paired with synthesized observability
+artifacts (logs, metrics, report output) and success criteria.
 
-A fault-injected assessment instance derived from a canonical codebase.
+---
+
+## Repository Philosophy
+
+LLMs are used for architecture reasoning, fault ideation, and scenario generation.
+Deterministic software handles schema validation, artifact lineage, and selective rebuild.
+
+Selective rebuild is tracked via `lineage.yaml` per problem using content hashes.
+Changing a spec invalidates the blueprint and everything downstream. Changing only a
+scenario spec invalidates only that scenario's assessment.
 
 ---
 
 ## Current Status
 
-Phase 1:
+See [ROADMAP.md](ROADMAP.md) for phase-by-phase progress.
 
-* taxonomy design
-* artifact contracts
-* generation architecture
+- `prob-001` (nightproc) — canonical codebase generated, 17 tests passing
+- `scen-001` through `scen-006` — scenario specs and incident briefs written; fault injection pending
