@@ -276,15 +276,18 @@ Verify scratch directory is gone before reporting done.
 
 # Final Output
 
-Emit this block when all phases are complete:
+Emit this block when all phases are complete and then stop.
+Do not invoke any of the commands listed below.
+Your work ends when patch.diff and patch_meta.json are saved.
 
 ```
 ╔══════════════════════════════════════════════════════════╗
-║  PATCH READY                                             ║
+║  PATCH READY — orchestrator work complete                ║
+║                                                          ║
 ║  patch.diff  : codes/<problem_id>/scenarios/<scenario_id>/patch.diff
 ║  patch_meta  : codes/<problem_id>/scenarios/<scenario_id>/patch_meta.json
 ║                                                          ║
-║  Next steps (run these yourself):                        ║
+║  Run these commands yourself in a terminal:              ║
 ║                                                          ║
 ║  python tools/apply_patch.py \                           ║
 ║    --problem <problem_id> \                              ║

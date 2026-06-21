@@ -191,30 +191,32 @@ No orchestrator existed to coordinate the two agents or manage handoffs.
 
 ### Decision
 
-Adopt orchestrator + specialized subagents with protocol switching.
+Adopt orchestrator + specialised subagents with protocol switching.
 
-Four agents, each with a single responsibility:
+Three agents, each with a single responsibility:
 
-1. **Orchestrator** — workflow state, approval gates, handoff emission, retry decisions
-2. **Patch Injection Agent** — reasoning only: scenario understanding, code inspection, mutation planning, patch generation
-3. **Mutation Executor Agent** — execution only: workspace copy, apply_patch.py, validate_patch.py, failure classification
-4. **Patch Validator Agent** — quality evaluation only: candidate perspective, solvability, capability coverage
+1. **Orchestrator** — produces `patch.diff` via `git diff`; manages scratch repo lifecycle and diff validation; hands off code edit to patch_injection
+2. **Patch Injection Agent** — edits one file in the scratch repo as instructed; returns confirmation only
+3. **Patch Validator Agent** — psychometric quality evaluation after materialisation (optional)
+
+The mutation executor agent (previously planned) was eliminated. `apply_patch.py`,
+`validate_patch.py`, and `run_scenario.py` are deterministic tools the user invokes
+directly after the orchestrator produces `patch.diff`. No agent is involved in tool
+invocation.
 
 Because VSCode custom agents do not support programmatic subagent invocation, the
 orchestrator uses a protocol-switching model: it emits structured HANDOFF blocks that
 instruct the user to load the appropriate agent, and resumes when the agent returns a
 structured RETURN block.
 
-The redundant mutation.agent.md was deleted — it is fully superseded by the refactored
-patch_injection.agent.md.
-
 ### Tradeoffs
 
-Gains: each agent has a single clear responsibility; reasoning and execution are never
-interleaved; the orchestrator owns all retry logic so no agent needs to decide whether
-to regenerate its own output; the protocol-switching model works within VSCode
-constraints without requiring a runtime framework.
+Gains: the diff is always produced by `git diff` against an actual edited file — no
+LLM writes diff syntax; hallucinated or malformed diffs are structurally impossible;
+the orchestrator stops after saving `patch.diff` and has no involvement in tool
+execution; `apply_patch.py` carries a hard `git apply --check` gate that the user
+observes directly — failures surface to the user, not back to any agent; deterministic
+tools are fully separated from agent reasoning.
 
-Costs: each scenario injection requires the user to manually switch agent context at
-phase boundaries; the orchestrator cannot enforce handoffs programmatically — the
-workflow relies on the user following the emitted HANDOFF instructions.
+Costs: the user must manually switch agent context at the handoff boundary; the
+orchestrator cannot enforce the handoff programmatically.

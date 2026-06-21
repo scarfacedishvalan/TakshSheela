@@ -43,6 +43,29 @@ canonical codebase.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for a detailed description of each stage.
 
+## Scenario Injection
+
+Fault injection is split between agents (reasoning) and deterministic tools (execution).
+
+```
+Orchestrator agent
+  └─► Patch Injection agent   (edits one file in a scratch git repo)
+  └─► git diff                (captures the diff — no LLM writes diff syntax)
+  └─► patch.diff saved
+
+User runs deterministic tools:
+  seed_canonical.py           (one-time per problem — seeds workspace git repo)
+  apply_patch.py              (6 pre-flight checks + git apply --check + commit)
+  validate_patch.py           (syntax, import, smoke run)
+  run_scenario.py             (repeated fault expression check)
+```
+
+Candidate workspaces live outside this repository at `<workspace_root>/<problem_id>/`
+(configured in `tools/config.json`). Each problem is an independent git repo. Each
+scenario is a branch with the canonical state as the first commit and the mutation as
+a second commit with a realistic message. No evidence of injection remains in the
+working tree.
+
 ---
 
 ## Repository Structure

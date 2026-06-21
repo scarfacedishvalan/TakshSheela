@@ -1,46 +1,63 @@
-# TakshSheela Patch Contract (v1)
+# TakshSheela Patch Contract (v2)
 
-This document defines the required format, constraints, and validation rules for all scenario mutation patches.
+This document defines how scenario mutation patches are produced, validated, and applied.
 
-Patches are used to deterministically transform a canonical codebase into a fault-injected scenario codebase.
-
-Patches are considered source-of-truth mutation artifacts.
+Patches are the authoritative mutation artifacts. They transform a canonical codebase
+into a fault-injected scenario codebase deterministically.
 
 ---
 
-# Purpose
+# Core Constraint
 
-A patch must satisfy all of the following:
+**No agent writes diff syntax directly.**
 
-1. Human inspectable
-2. Deterministically applicable
-3. Minimal
-4. Semantically targeted
-5. Compatible with automated validation
+The diff is always produced by `git diff` against an actual edited file in a scratch
+git repo. An LLM edits source code; `git diff` captures what changed. This eliminates
+hallucinated diffs, path errors, and context-line drift.
 
-Patches must represent code mutations only.
+---
 
-They must not contain scenario metadata.
+# How a Patch is Produced
 
-Scenario metadata belongs elsewhere.
+```
+1. Orchestrator sets up scratch git repo
+   codes/_scratch/<problem_id>-<scenario_id>/
+   containing only the target file at its canonical-relative path
+
+2. Orchestrator commits the unmodified file: git commit -m "base"
+
+3. Orchestrator hands off to Patch Injection Agent:
+   — provides absolute scratch file path
+   — provides exact mutation instruction
+   — agent edits the file only, returns RETURN block
+
+4. Orchestrator runs:
+   git -C codes/_scratch/<problem_id>-<scenario_id> diff
+   and captures stdout verbatim
+
+5. Orchestrator validates the captured diff (see Validation Rules below)
+
+6. Orchestrator saves diff output as:
+   codes/<problem_id>/scenarios/<scenario_id>/patch.diff
+
+7. Orchestrator generates patch_meta.json alongside patch.diff
+
+8. Orchestrator deletes scratch repo
+```
 
 ---
 
 # Artifact Layout
 
-Each scenario stores:
-
-```text
+```
 codes/<problem_id>/scenarios/<scenario_id>/
-    patch.diff
-    patch_meta.json
+    patch.diff          ← raw git diff output, never hand-written
+    patch_meta.json     ← mutation metadata
 ```
 
 ---
 
 # Patch Meta Schema
-
-`patch_meta.json`
 
 ```json
 {
@@ -54,205 +71,113 @@ codes/<problem_id>/scenarios/<scenario_id>/
 }
 ```
 
-Required fields:
+Required fields: all of the above.
 
-* scenario_id
-* problem_id
-* canonical_version
-* expected_files_changed
-* expected_hunks
-* mutation_type
-* fault_family
-
----
-
-# Allowed Patch Format
-
-Patch must use standard unified diff / git diff format.
-
-Example:
-
-```diff
-diff --git a/nightproc/store.py b/nightproc/store.py
-index 15203e7..b2fb869 100644
---- a/nightproc/store.py
-+++ b/nightproc/store.py
-@@ -31,13 +31,12 @@ def update(accumulator, category, value, failed=False):
--    with _lock:
--        if failed:
--            key = f"{category}_failed"
--            accumulator[key] = accumulator.get(key, 0) + 1
-+    if failed:
-+        key = f"{category}_failed"
-+        accumulator[key] = accumulator.get(key, 0) + 1
-```
+`expected_files_changed` and `expected_hunks` are derived by counting `diff --git`
+and `@@` lines in the captured diff — they are never estimated or guessed.
 
 ---
 
 # Patch Path Rules
 
-## Rule 1 — Repo Relative Paths Only
-
-Paths MUST be relative to canonical repo root.
-
-Valid:
+Paths in the diff are relative to the scratch repo root, which mirrors the canonical
+repo root. A file at `nightproc/store.py` in the canonical codebase must be placed at
+`nightproc/store.py` in the scratch repo, producing:
 
 ```diff
+diff --git a/nightproc/store.py b/nightproc/store.py
+```
+
+Valid:
+```
 a/nightproc/store.py
 b/nightproc/store.py
 ```
 
-Invalid:
-
-```diff
+Invalid (scratch was set up with wrong layout):
+```
 a/codes/prob-001/canonical/nightproc/store.py
+a/codes/_scratch/prob-001-scen-001/nightproc/store.py
 ```
 
-Invalid:
-
-```diff
-b/codes/_workspace/prob-001-scen-001/nightproc/store.py
-```
-
-Workspace paths are forbidden.
-
-Absolute paths are forbidden.
+If invalid paths appear, the scratch repo was not set up correctly. Rebuild the
+scratch repo — do not edit the diff.
 
 ---
 
 # Patch Scope Rules
 
-## Rule 2 — Single Root Cause
+One patch represents exactly one primary fault mutation.
 
-One patch must represent exactly one primary fault mutation.
+- **One root cause** — a single change that introduces a single fault
+- **Minimum files** — touch the fewest files possible (almost always 1)
+- **Minimum lines** — change only lines required to introduce the fault
+- **No noise** — no formatting changes, comment rewrites, import reordering, or cleanup
 
-Allowed:
-
-* lock removal
-* retry logic modification
-* stale cache insertion
-
-Not allowed:
-
-Single patch containing multiple unrelated fault families.
-
----
-
-## Rule 3 — Minimize Blast Radius
-
-Touch the smallest number of files possible.
-
-Recommended:
-1–3 files
-
-Hard limit:
-5 files unless explicitly approved
-
----
-
-## Rule 4 — Minimal Changes
-
-Change only lines necessary to introduce the fault.
-
-Avoid:
-
-* formatting changes
-* comment rewrites
-* import reordering
-* unrelated cleanup
-
-Patch noise is forbidden.
-
----
-
-# Context Rules
-
-## Rule 5 — Adequate Context
-
-Patch hunks must include enough context lines to apply reliably.
-
-Use standard git diff context.
-
-Avoid manually constructed hunks with insufficient context.
-
----
-
-# Agent Generation Rules
-
-Before generating a patch, the agent MUST:
-
-1. Read actual target files
-2. Confirm target symbol exists
-3. Confirm mutation location exists
-4. Explain intended mutation
-5. Generate patch only after verification
-
-The agent must never generate a patch from inferred code.
-
-It must operate on actual repository files.
+A patch that changes 2+ files or has 3+ hunks requires explicit justification.
+Default hard limit: 1 file, 1–2 hunks.
 
 ---
 
 # Validation Rules
 
-Every patch must pass all validation stages.
+`apply_patch.py` enforces six checks before any file is written to the workspace.
+Checks run in order. Any failure exits immediately — no retry, no LLM repair.
+
+| Check | What is verified |
+|---|---|
+| 1. Exists and non-empty | `patch.diff` file is present and has content |
+| 2. Valid diff structure | Contains `diff --git`, `---`, `+++`, `@@` headers |
+| 3. Repo-relative paths | No absolute paths, no `codes/` prefix, forward slashes only |
+| 4. Hunk count vs meta | Actual file and hunk counts match `patch_meta.json` |
+| 5. Target files exist | Every `---` path exists in the canonical working tree |
+| 6. `git apply --check` | Authoritative gate — context lines verified by git |
+
+Check 6 is the hard barrier. It is equivalent to `git apply` dry-run. If it passes,
+the patch is guaranteed to apply cleanly. If it fails, git's error output names the
+exact file, line number, and mismatched content. This is the complete diagnostic — no
+further analysis is needed.
 
 ---
 
-## Stage 1 — Applicability Check
+# How a Patch is Applied
 
-Must pass:
+`apply_patch.py` applies the patch to the workspace:
 
-```bash
-git apply --check patch.diff
+```
+1. Run checks 1–5 (Python pre-flight)
+2. git checkout canonical  (in workspace repo)
+3. git checkout -b <scenario_id>
+4. Copy patch.diff into workspace root (temporary)
+5. git apply --check patch.diff  ← HARD STOP on failure
+6. git apply patch.diff
+7. rm patch.diff  ← no evidence of injection
+8. git add -A && git commit -m "<realistic message>"
 ```
 
-Failure invalidates patch.
+The workspace is an independent git repo at `<workspace_root>/<problem_id>/`
+(outside TakshSheela). The `canonical` branch is seeded once by `seed_canonical.py`.
+Each scenario is a branch with two commits: canonical baseline + mutation commit.
+
+The mutation commit message is authored by the orchestrator (derived from
+`scenario_spec.md`) and must read as a plausible engineering decision, not as a
+test or injection artifact.
 
 ---
 
-## Stage 2 — Structural Validation
+# Workspace Repo Layout
 
-Run:
+```
+<workspace_root>/
+  prob-001/                  ← independent git repo
+    branch: canonical        ← flat codebase at repo root, no subdirectory
+    branch: scen-001         ← canonical + mutation commit
+    branch: scen-002         ← canonical + mutation commit
+```
 
-* syntax checks
-* import checks
-* smoke tests
-
-Patch must preserve runnable code.
-
----
-
-## Stage 3 — Behavioral Validation
-
-Scenario runner must verify intended fault manifests.
-
-Example checks:
-
-* race manifests
-* metric drift occurs
-* silent corruption detectable
-
-A patch that applies but does not manifest intended fault is invalid.
-
----
-
-# Agent Output Contract
-
-When asked to generate a patch, the agent must return:
-
-## Mutation Summary
-
-* target files
-* target symbols
-* mutation rationale
-* expected symptom
-
-## patch_meta.json
-
-## patch.diff
-
-No additional prose.
+Files are flat at repo root — no `prob-001/` subdirectory inside the repo.
+This makes `git apply` path resolution exact: `a/nightproc/store.py` resolves
+directly to `nightproc/store.py` without `--directory` flags.
 
 ---
 
@@ -260,18 +185,19 @@ No additional prose.
 
 Forbidden:
 
-* patches against workspace paths
-* patches generated from hallucinated code
+* agents writing `diff --git`, `---`, `+++`, or `@@` lines directly
+* editing patch.diff after it is captured from `git diff`
+* patches generated from inferred or remembered code (not from actual files)
 * multi-fault patches
-* patches with unrelated formatting changes
-* patches without validation
+* patches containing formatting or comment changes unrelated to the fault
+* workspace paths or absolute paths in diff headers
+* LLM-based repair of a failed `git apply --check`
 
 ---
 
 # Design Philosophy
 
-Patches are mutation artifacts, not code snapshots.
-
-The canonical codebase remains the source of truth.
-
-Scenario repos are ephemeral and disposable.
+The LLM's role is to understand the mutation and edit source code correctly.
+`git diff` is the only mechanism that produces the patch artifact.
+`git apply --check` is the only mechanism that validates patch applicability.
+Deterministic tools own execution. Agents own reasoning and code editing.

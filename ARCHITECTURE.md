@@ -150,66 +150,103 @@ Contains:
 
 # Agent Architecture
 
-Scenario injection is coordinated by three specialized agents operating under a
-protocol-switching model. VSCode custom agents do not support true programmatic
+Scenario injection is coordinated by two agents and three deterministic tools operating
+under a protocol-switching model. VSCode custom agents do not support true programmatic
 subagent invocation, so the orchestrator manages workflow state and issues explicit
 handoff instructions to the user to load the appropriate agent at each phase boundary.
+
+## Patch Generation (agent-driven)
 
 ```
 Scenario Orchestrator
   │
-  ├─► [handoff] Patch Injection Agent
-  │     reasoning: scenario understanding, code inspection,
-  │                mutation planning, patch generation
-  │     output: patch.diff + patch_meta.json + reasoning summary
+  │  Phase 2: sets up scratch git repo (deterministic)
+  │  Phase 4: runs git diff (deterministic)
+  │  Phase 5: validates diff (deterministic)
+  │  Phase 6: saves patch.diff + patch_meta.json
   │
-  ├─► [handoff] Mutation Executor Agent
-  │     execution: workspace copy, apply_patch.py, validate_patch.py,
-  │                failure classification
-  │     output: structured pass/fail execution report
-  │
-  └─► [handoff] Patch Validator Agent  (optional)
-        evaluation: psychometric quality, candidate perspective,
-                    difficulty calibration
-        output: APPROVE / APPROVE WITH MINOR CHANGES / REJECT
+  └─► [handoff] Patch Injection Agent
+        Phase 3: edits one file in scratch repo
+        output: RETURN block confirming edit is complete
+                (no diff generated — orchestrator captures diff via git diff)
 ```
+
+The diff is always produced by `git diff`. No agent writes diff syntax directly.
+
+## Scenario Materialisation (tool-driven, user-invoked)
+
+```
+apply_patch.py      — 6-check validation + git apply → scenario branch in problems\<problem_id>
+validate_patch.py   — syntax, import, smoke run against workspace
+run_scenario.py     — repeated fault expression check
+```
+
+These tools are run directly by the user in a terminal after the orchestrator produces
+`patch.diff` and stops. The orchestrator has no involvement in or awareness of this
+stage. A failure in any tool is surfaced to the user, not fed back to any agent.
 
 ## Orchestrator
 
-Top-level control plane. Owns workflow state across all phases, approval gates between
-phases, handoff emission, and retry decisions. Does not generate patches or invoke tools.
+Scope: produce `patch.diff` and `patch_meta.json`. Nothing beyond that.
+
+Manages: scratch repo lifecycle, handoff to patch_injection, `git diff` capture, diff
+validation, artifact persistence, scratch cleanup.
+
+Does NOT: write diff syntax, run apply_patch.py, evaluate psychometric quality.
 
 Located at: `.github/agents/orchestrator.agent.md`
 
 ## Patch Injection Agent
 
-Reasoning-only. Reads scenario artifacts and canonical code, identifies mutation points,
-produces patch.diff and patch_meta.json. Stops before any tool invocation.
+Scope: edit one file in the scratch repo as instructed by the orchestrator.
+
+Receives: absolute scratch file path + exact mutation instruction.
+Returns: RETURN block with line counts and one-line change summary.
+
+Does NOT: generate diff syntax, reason about patch format, touch any file outside
+the named scratch file.
 
 Located at: `.github/agents/patch_injection.agent.md`
 
-## Mutation Executor Agent
-
-Execution-only. Receives patch artifacts, creates workspace copy, runs apply_patch.py
-and validate_patch.py, classifies failures. Does not reason about fault semantics.
-
-Located at: `.github/agents/mutation_executor.agent.md`
-
 ## Patch Validator Agent
 
-Quality evaluation only. Evaluates a materialized scenario from the candidate perspective.
-Assesses solvability, observability, and capability coverage. Does not inject faults.
+Quality evaluation only. Evaluates a materialised scenario from the candidate
+perspective. Assesses solvability, observability, and capability coverage.
+Does not inject faults or produce patches.
 
 Located at: `.github/agents/patch_validator.agent.md`
+
+## Scratch Repo
+
+A temporary minimal git repo created by the orchestrator at
+`codes/_scratch/<problem_id>-<scenario_id>/` for the sole purpose of capturing
+a `git diff` after the patch_injection agent edits the target file. Deleted by
+the orchestrator after `patch.diff` is saved. Gitignored in TakshSheela.
+
+## Workspace Repo
+
+The candidate-facing git repo lives outside the TakshSheela repository at
+`<workspace_root>/<problem_id>/` (configured in `tools/config.json`).
+
+Structure:
+```
+<workspace_root>/
+  prob-001/               ← independent git repo per problem
+    branch: canonical     ← correct codebase, flat at repo root (seeded once)
+    branch: scen-001      ← canonical + one mutation commit
+    branch: scen-002      ← canonical + one mutation commit
+```
+
+`patch.diff` is applied via `git apply`, committed with a realistic message, and
+then deleted from the workspace — leaving no evidence of synthetic injection.
 
 ## Protocol Switching
 
 When a phase boundary is reached, the orchestrator emits a structured HANDOFF block
-naming the agent, its input file, and the required inputs. When the agent completes,
-it emits a structured RETURN block. The orchestrator resumes from the returned output.
+naming the agent, its input file, and the exact mutation instruction. The agent emits
+a structured RETURN block on completion. The orchestrator resumes and runs `git diff`.
 
-This model gives the orchestrator full workflow visibility without requiring a runtime
-framework or true multi-agent invocation.
+This model keeps the LLM out of the diff path entirely.
 
 ---
 
