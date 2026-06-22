@@ -83,7 +83,10 @@ TakshSheela/
 │       └── scenarios/
 │           └── scen-001/
 │               ├── scenario_spec.md    Fault definition and injection instructions
-│               └── incident_brief.md  Candidate-facing problem statement
+│               ├── incident_brief.md  Candidate-facing problem statement
+│               ├── patch.diff         Mutation diff (produced by orchestrator via git diff)
+│               ├── patch_meta.json    Mutation metadata; declares extra_copies if needed
+│               └── <extra files>      Scenario-specific inputs (job files, configs, etc.)
 │
 ├── codes/                      Generated codebases
 │   └── prob-001/

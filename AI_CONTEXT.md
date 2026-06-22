@@ -54,8 +54,8 @@ Examples of valid artifacts:
 
 * spec
 * blueprint
-* IR
 * scenario metadata
+* patch artifacts (patch.diff, patch_meta.json)
 
 ---
 

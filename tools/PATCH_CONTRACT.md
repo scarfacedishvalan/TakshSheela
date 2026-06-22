@@ -51,7 +51,7 @@ hallucinated diffs, path errors, and context-line drift.
 # Artifact Layout
 
 ```
-codes/<problem_id>/scenarios/<scenario_id>/
+problems/<problem_id>/scenarios/<scenario_id>/
     patch.diff          ← raw git diff output, never hand-written
     patch_meta.json     ← mutation metadata
 ```
@@ -68,11 +68,20 @@ codes/<problem_id>/scenarios/<scenario_id>/
   "expected_files_changed": 1,
   "expected_hunks": 1,
   "mutation_type": "<mutation_type>",
-  "fault_family": "<fault_family>"
+  "fault_family": "<fault_family>",
+  "extra_copies": [
+    { "src": "<filename>", "dest": "<dest_relative_to_problem_root>" }
+  ]
 }
 ```
 
-Required fields: all of the above.
+Required fields: all except `extra_copies` (omit the key when there are no extra files).
+
+`extra_copies` declares scenario-specific files (job inputs, config overrides, seed data)
+that exist in the scenario folder but not in the canonical codebase. `apply_patch.py`
+copies each entry into the workspace branch alongside the patch, so candidates see
+them as part of the repository. `src` is relative to the scenario folder; `dest` is
+relative to `<workspace>/<problem_id>/`.
 
 `expected_files_changed` and `expected_hunks` are derived by counting `diff --git`
 and `@@` lines in the captured diff — they are never estimated or guessed.
@@ -148,13 +157,15 @@ further analysis is needed.
 
 ```
 1. Run checks 1–5 (Python pre-flight)
-2. git checkout canonical  (in workspace repo)
-3. git checkout -b <scenario_id>
+2. git checkout <problem_id>--canonical  (in workspace repo)
+3. git checkout -b <problem_id>--<scenario_id>
 4. Copy patch.diff into workspace root (temporary)
 5. git apply --check patch.diff  ← HARD STOP on failure
 6. git apply patch.diff
 7. rm patch.diff  ← no evidence of injection
-8. git add -A && git commit -m "<realistic message>"
+8. Copy incident_brief.md → <problem_id>/INCIDENT_BRIEF.md
+9. Copy any extra_copies entries into their declared dest paths
+10. git add -A && git commit -m "<realistic message>"
 ```
 
 The workspace is an independent git repo at `<workspace_root>/<problem_id>/`
