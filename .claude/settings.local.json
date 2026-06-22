@@ -3,7 +3,8 @@
     "allow": [
       "Bash(mkdir -p \"C:/Users/abhir/.claude/projects/C--Python-TakshSheela/memory\")",
       "Bash(python run_batch.py jobs/sample_jobs.json --threads 4)",
-      "Bash(python -m unittest discover tests/ -v)"
+      "Bash(python -m unittest discover tests/ -v)",
+      "Bash(python3 -c ' *)"
     ]
   }
 }

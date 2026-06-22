@@ -369,6 +369,18 @@ def main():
     else:
         print(f"WARNING: incident_brief.md not found at {brief_src} — skipping", file=sys.stderr)
 
+    # Copy any scenario-specific extra files declared in patch_meta.json.
+    # src is relative to the scenario folder; dest is relative to workspace/<problem_id>/.
+    scenario_dir = takshsheela_root / "problems" / args.problem / "scenarios" / args.scenario
+    for entry in meta.get("extra_copies", []):
+        src  = scenario_dir / entry["src"]
+        dest = workspace / args.problem / entry["dest"]
+        if not src.exists():
+            hard_stop(f"extra_copies src not found: {src}")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dest)
+        print(f"Copied {entry['src']} -> {dest.relative_to(workspace)}")
+
     git(["add", "-A"], cwd=workspace)
     git(["commit", "-m", args.message], cwd=workspace)
 
