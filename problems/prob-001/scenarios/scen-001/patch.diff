@@ -1,8 +1,16 @@
 diff --git a/prob-001/nightproc/store.py b/prob-001/nightproc/store.py
-index 15203e7..b2fb869 100644
+index 15203e7..f9a2a32 100644
 --- a/prob-001/nightproc/store.py
 +++ b/prob-001/nightproc/store.py
-@@ -31,13 +31,12 @@ def update(accumulator, category, value, failed=False):
+@@ -16,6 +16,7 @@ and the update is not atomic.
+ """
+ 
+ import threading
++import time
+ 
+ _lock = threading.Lock()
+ 
+@@ -31,13 +32,17 @@ def update(accumulator, category, value, failed=False):
  
      Thread-safe: acquires _lock for the full read-modify-write.
      """
@@ -15,10 +23,15 @@ index 15203e7..b2fb869 100644
 -            accumulator[f"{category}_total"] = accumulator.get(f"{category}_total", 0) + value
 +    if failed:
 +        key = f"{category}_failed"
-+        accumulator[key] = accumulator.get(key, 0) + 1
++        count = accumulator.get(key, 0) + 1
++        time.sleep(0)  # yield — reduce contention on high-throughput runs
++        accumulator[key] = count
 +    else:
-+        accumulator[f"{category}_count"] = accumulator.get(f"{category}_count", 0) + 1
-+        accumulator[f"{category}_total"] = accumulator.get(f"{category}_total", 0) + value
++        count = accumulator.get(f"{category}_count", 0) + 1
++        total = accumulator.get(f"{category}_total", 0) + value
++        time.sleep(0)  # yield — reduce contention on high-throughput runs
++        accumulator[f"{category}_count"] = count
++        accumulator[f"{category}_total"] = total
  
  
  def read(accumulator):

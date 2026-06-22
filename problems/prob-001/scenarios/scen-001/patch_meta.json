@@ -3,7 +3,7 @@
   "problem_id": "prob-001",
   "canonical_version": "v2",
   "expected_files_changed": 1,
-  "expected_hunks": 1,
-  "mutation_type": "remove_lock_guard",
+  "expected_hunks": 2,
+  "mutation_type": "remove_lock_guard_inject_sleep",
   "fault_family": "coordination"
 }
