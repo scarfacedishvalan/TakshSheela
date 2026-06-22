@@ -116,15 +116,19 @@ Scratch location:
 codes/_scratch/<problem_id>-<scenario_id>/
 ```
 
+The scratch repo mirrors the workspace layout: files go under a `<problem_id>/`
+subdirectory so that `git diff` produces paths like `a/<problem_id>/nightproc/store.py`.
+This is required for `git apply` to resolve paths correctly in the workspace branch.
+
 Run these commands exactly:
 
 ```bash
-# Create scratch directory with target file directory structure
-mkdir -p codes/_scratch/<problem_id>-<scenario_id>/<file_dir>
+# Create scratch directory with problem subdirectory and target file structure
+mkdir -p codes/_scratch/<problem_id>-<scenario_id>/<problem_id>/<file_dir>
 
-# Copy the exact target file from canonical
+# Copy the exact target file from canonical into the problem subdirectory
 cp codes/<problem_id>/canonical/<target_file> \
-   codes/_scratch/<problem_id>-<scenario_id>/<target_file>
+   codes/_scratch/<problem_id>-<scenario_id>/<problem_id>/<target_file>
 
 # Initialise git and commit the baseline
 git -C codes/_scratch/<problem_id>-<scenario_id> init
@@ -133,16 +137,22 @@ git -C codes/_scratch/<problem_id>-<scenario_id> commit -m "base"
 ```
 
 Where:
-- `<file_dir>` is the directory portion of the repo-relative file path
+- `<file_dir>` is the directory portion of the canonical-relative file path
   e.g. for `nightproc/store.py` → `<file_dir>` is `nightproc`
-- `<target_file>` is the full repo-relative file path
+- `<target_file>` is the canonical-relative file path
   e.g. `nightproc/store.py`
+
+The file in the scratch repo will be at:
+```
+codes/_scratch/<problem_id>-<scenario_id>/<problem_id>/<target_file>
+e.g. codes/_scratch/prob-001-scen-001/prob-001/nightproc/store.py
+```
 
 Verify the scratch file exists and matches canonical before proceeding:
 
 ```bash
 diff codes/<problem_id>/canonical/<target_file> \
-     codes/_scratch/<problem_id>-<scenario_id>/<target_file>
+     codes/_scratch/<problem_id>-<scenario_id>/<problem_id>/<target_file>
 ```
 
 Expected output: no diff (files are identical). Hard stop if any difference is found.
@@ -166,7 +176,7 @@ Example handoff:
 ║  File: .github/agents/patch_injection.agent.md   ║
 ║  Scratch file:                                   ║
 ║    C:\Python\TakshSheela\codes\_scratch\         ║
-║    prob-001-scen-001\nightproc\store.py          ║
+║    prob-001-scen-001\prob-001\nightproc\store.py ║
 ║  Instruction:                                    ║
 ║    Remove the `with _lock:` block in update().   ║
 ║    Dedent the body by one level. No other        ║
@@ -212,15 +222,17 @@ Must contain:
 
 ### Check 3 — Repo-relative paths
 Every `---` and `+++` path must:
-* start with `a/` or `b/`
+* start with `a/<problem_id>/` or `b/<problem_id>/`
 * not contain `codes/`, `_scratch/`, `_workspace/`, or any absolute path prefix
 * use forward slashes only
 
-Expected: `a/nightproc/store.py`
+Expected: `a/prob-001/nightproc/store.py`
+Forbidden: `a/nightproc/store.py` (missing problem prefix)
 Forbidden: `a/codes/prob-001/canonical/nightproc/store.py`
 
-If Check 3 fails, the scratch repo was set up with wrong paths.
-Rebuild the scratch repo ensuring files are at repo-relative positions (not nested under `codes/...`).
+If Check 3 fails, the scratch repo was not set up with the `<problem_id>/` subdirectory.
+Rebuild the scratch repo with the correct layout:
+`codes/_scratch/<problem_id>-<scenario_id>/<problem_id>/<target_file>`
 
 ### Check 4 — Single fault
 Count `diff --git` lines (files changed) and `@@` lines (hunks).

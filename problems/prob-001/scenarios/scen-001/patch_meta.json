@@ -4,6 +4,6 @@
   "canonical_version": "v2",
   "expected_files_changed": 1,
   "expected_hunks": 1,
-  "mutation_type": "synchronization_removal",
+  "mutation_type": "remove_lock_guard",
   "fault_family": "coordination"
 }

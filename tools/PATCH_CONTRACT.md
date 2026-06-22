@@ -22,7 +22,8 @@ hallucinated diffs, path errors, and context-line drift.
 ```
 1. Orchestrator sets up scratch git repo
    codes/_scratch/<problem_id>-<scenario_id>/
-   containing only the target file at its canonical-relative path
+   containing only the target file under a <problem_id>/ subdirectory,
+   mirroring the workspace branch layout
 
 2. Orchestrator commits the unmodified file: git commit -m "base"
 
@@ -80,28 +81,29 @@ and `@@` lines in the captured diff — they are never estimated or guessed.
 
 # Patch Path Rules
 
-Paths in the diff are relative to the scratch repo root, which mirrors the canonical
-repo root. A file at `nightproc/store.py` in the canonical codebase must be placed at
-`nightproc/store.py` in the scratch repo, producing:
+The scratch repo mirrors the workspace branch layout. Files go under a `<problem_id>/`
+subdirectory. A file at `nightproc/store.py` in the canonical codebase must be placed at
+`<problem_id>/nightproc/store.py` in the scratch repo, producing:
 
 ```diff
-diff --git a/nightproc/store.py b/nightproc/store.py
+diff --git a/prob-001/nightproc/store.py b/prob-001/nightproc/store.py
 ```
 
 Valid:
 ```
-a/nightproc/store.py
-b/nightproc/store.py
+a/prob-001/nightproc/store.py
+b/prob-001/nightproc/store.py
 ```
 
-Invalid (scratch was set up with wrong layout):
+Invalid (scratch was set up without problem prefix):
 ```
+a/nightproc/store.py
 a/codes/prob-001/canonical/nightproc/store.py
 a/codes/_scratch/prob-001-scen-001/nightproc/store.py
 ```
 
-If invalid paths appear, the scratch repo was not set up correctly. Rebuild the
-scratch repo — do not edit the diff.
+If invalid paths appear, the scratch repo was not set up with the `<problem_id>/`
+subdirectory. Rebuild the scratch repo — do not edit the diff.
 
 ---
 
@@ -168,16 +170,17 @@ test or injection artifact.
 # Workspace Repo Layout
 
 ```
-<workspace_root>/
-  prob-001/                  ← independent git repo
-    branch: canonical        ← flat codebase at repo root, no subdirectory
-    branch: scen-001         ← canonical + mutation commit
-    branch: scen-002         ← canonical + mutation commit
+<workspace_root>/              ← single shared git repo for all problems
+  branch: prob-001--canonical  ← prob-001 codebase under prob-001/ subdirectory
+  branch: prob-001--scen-001   ← canonical + mutation commit
+  branch: prob-001--scen-002   ← canonical + mutation commit
+  branch: prob-002--canonical  ← prob-002 codebase under prob-002/ subdirectory
+  ...
 ```
 
-Files are flat at repo root — no `prob-001/` subdirectory inside the repo.
-This makes `git apply` path resolution exact: `a/nightproc/store.py` resolves
-directly to `nightproc/store.py` without `--directory` flags.
+Each problem's files live under a `<problem_id>/` subdirectory within its branches.
+Patch paths carry the problem prefix (e.g. `a/prob-001/nightproc/store.py`), so
+`git apply` resolves them correctly without `--directory` flags.
 
 ---
 

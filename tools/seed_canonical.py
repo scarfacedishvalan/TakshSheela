@@ -125,9 +125,16 @@ def main():
     # Clear any files inherited from the previous working tree
     git_check(["rm", "-rf", "."], cwd=workspace)
 
-    # Copy canonical codebase contents flat into workspace root
+    # Copy canonical codebase contents into a <problem_id>/ subdirectory.
+    # This mirrors the workspace layout so patch paths include the problem prefix
+    # (e.g. prob-001/nightproc/store.py) and multi-problem branches coexist cleanly.
+    dest_root = workspace / args.problem
+    if dest_root.exists():
+        shutil.rmtree(dest_root)
+    dest_root.mkdir()
+
     for item in source.iterdir():
-        dest = workspace / item.name
+        dest = dest_root / item.name
         if item.is_dir():
             shutil.copytree(item, dest)
         else:

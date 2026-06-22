@@ -1,7 +1,7 @@
-diff --git a/nightproc/store.py b/nightproc/store.py
+diff --git a/prob-001/nightproc/store.py b/prob-001/nightproc/store.py
 index 15203e7..b2fb869 100644
---- a/nightproc/store.py
-+++ b/nightproc/store.py
+--- a/prob-001/nightproc/store.py
++++ b/prob-001/nightproc/store.py
 @@ -31,13 +31,12 @@ def update(accumulator, category, value, failed=False):
  
      Thread-safe: acquires _lock for the full read-modify-write.

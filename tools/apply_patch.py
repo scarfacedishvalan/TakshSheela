@@ -115,16 +115,17 @@ def check_2_valid_diff_structure(patch_text):
         )
 
 
-def check_3_repo_relative_paths(patch_text):
-    """All --- and +++ paths must be repo-relative with no forbidden prefixes."""
+def check_3_repo_relative_paths(patch_text, problem_id):
+    """All --- and +++ paths must be repo-relative and start with <problem_id>/."""
     FORBIDDEN = [
         (r"^[ab]/[A-Za-z]:[/\\]", "absolute Windows path"),
         (r"^[ab]//",               "absolute Unix path"),
-        (r"^[ab]/codes/",          "full repo path — must be canonical-relative (e.g. a/nightproc/store.py)"),
+        (r"^[ab]/codes/",          "full TakshSheela repo path — must use workspace-relative path"),
         (r"_workspace",            "workspace path in diff — forbidden"),
         (r"_scratch",              "scratch path in diff — forbidden"),
         (r"\\",                    "backslash in path — git diff uses forward slashes only"),
     ]
+    correct_example = f"a/{problem_id}/nightproc/store.py"
 
     for line in patch_text.splitlines():
         if not (line.startswith("--- ") or line.startswith("+++ ")):
@@ -132,13 +133,26 @@ def check_3_repo_relative_paths(patch_text):
         path_part = line[4:].split("\t")[0].strip()
         if path_part in ("/dev/null", "dev/null"):
             continue
+
         for pattern, reason in FORBIDDEN:
             if re.search(pattern, path_part):
                 hard_stop(
                     f"invalid path in patch: {path_part!r}\n"
                     f"  reason : {reason}\n"
-                    f"  correct: a/nightproc/store.py  (repo-relative, forward slashes)"
+                    f"  correct: {correct_example}"
                 )
+
+        # Positive check: path must start with a/<problem_id>/ or b/<problem_id>/
+        prefix_a = f"a/{problem_id}/"
+        prefix_b = f"b/{problem_id}/"
+        if not (path_part.startswith(prefix_a) or path_part.startswith(prefix_b)):
+            hard_stop(
+                f"invalid path in patch: {path_part!r}\n"
+                f"  reason : path must start with the problem prefix '{problem_id}/'\n"
+                f"  correct: {correct_example}\n"
+                f"  The scratch repo must mirror the workspace layout:\n"
+                f"    codes/_scratch/<problem>-<scenario>/{problem_id}/<target_file>"
+            )
 
 
 def check_4_hunk_count(patch_text, patch_path):
@@ -179,7 +193,7 @@ def check_4_hunk_count(patch_text, patch_path):
 
 
 def check_5_target_files_exist(patch_text, workspace):
-    """Every file targeted by --- must exist in the canonical working tree."""
+    """Every file targeted by --- must be tracked in the canonical branch."""
     missing = []
     for line in patch_text.splitlines():
         if not line.startswith("--- "):
@@ -188,12 +202,21 @@ def check_5_target_files_exist(patch_text, workspace):
         if path_part in ("/dev/null", "dev/null"):
             continue
         rel = path_part[2:] if path_part.startswith("a/") else path_part
-        if not (workspace / rel).exists():
+
+        # Use git ls-files rather than Path.exists() — asks git directly whether
+        # the file is tracked in the current branch, independent of filesystem state.
+        result = subprocess.run(
+            ["git", "ls-files", "--error-unmatch", rel],
+            cwd=workspace,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
             missing.append(rel)
 
     if missing:
         hard_stop(
-            "patch targets file(s) that do not exist in canonical:\n"
+            "patch targets file(s) that are not tracked in canonical branch:\n"
             + "\n".join(f"  {m}" for m in missing)
             + "\nCheck the injection site in scenario_spec.md and regenerate the patch."
         )
@@ -280,7 +303,7 @@ def main():
     print("        OK")
 
     print("[ 3/6 ] Checking path conventions...")
-    check_3_repo_relative_paths(patch_text)
+    check_3_repo_relative_paths(patch_text, args.problem)
     print("        OK")
 
     print("[ 4/6 ] Checking hunk count against patch_meta.json...")
