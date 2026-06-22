@@ -6,8 +6,7 @@ Usage:
     python tools/apply_patch.py --problem prob-001 \   # CLI args override run_config.json
         --scenario scen-001 \
         --patch codes/prob-001/scenarios/scen-001/patch.diff \
-        --message "Remove unnecessary lock contention in accumulator" \
-        [--force]
+        --message "Remove unnecessary lock contention in accumulator"
 
 Run config (tools/run_config.json):
     Update this file and run with no arguments for the common case.
@@ -36,6 +35,7 @@ Hard gate:
 
 On success:
     Creates branch <problem_id>--<scenario_id> off <problem_id>--canonical.
+    If the branch already exists it is deleted and recreated.
     Applies patch, removes patch.diff, commits with --message.
 """
 
@@ -250,12 +250,7 @@ def main():
     parser.add_argument("--scenario", default=run_cfg.get("scenario"), help="Scenario ID, e.g. scen-001")
     parser.add_argument("--patch",    default=run_cfg.get("patch"),    help="Path to patch.diff (absolute or relative to takshsheela_root)")
     parser.add_argument("--message",  default=run_cfg.get("message"),  help="Realistic commit message for the mutation commit")
-    parser.add_argument("--force",    action="store_true",             help="Delete and recreate scenario branch if it exists")
     args = parser.parse_args()
-
-    # --force in run_config.json is honoured only if CLI did not set it
-    if not args.force and run_cfg.get("force"):
-        args.force = True
 
     # Validate required fields — may come from run_config.json or CLI
     missing = [f for f in ("problem", "scenario", "patch", "message") if not getattr(args, f)]
@@ -323,14 +318,8 @@ def main():
 
     existing = git(["branch", "--list", scenario_branch], cwd=workspace, check=False)
     if scenario_branch in existing.stdout:
-        if args.force:
-            git(["branch", "-D", scenario_branch], cwd=workspace)
-            print(f"\nDeleted existing branch: {scenario_branch}")
-        else:
-            hard_stop(
-                f"branch '{scenario_branch}' already exists.\n"
-                "Use --force to overwrite."
-            )
+        git(["branch", "-D", scenario_branch], cwd=workspace)
+        print(f"\nDeleted existing branch: {scenario_branch}")
 
     git(["checkout", "-b", scenario_branch], cwd=workspace)
     print(f"Created branch: {scenario_branch}")
