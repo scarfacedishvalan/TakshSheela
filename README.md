@@ -185,4 +185,6 @@ scenario spec invalidates only that scenario's assessment.
 See [ROADMAP.md](ROADMAP.md) for phase-by-phase progress.
 
 - `prob-001` (nightproc) — canonical codebase generated, 17 tests passing
-- `scen-001` through `scen-006` — scenario specs and incident briefs written; fault injection pending
+- `scen-001` — injected (patch applied, workspace branch live)
+- `scen-002` through `scen-006` — scenario specs and incident briefs written; patch generation pending
+- `scen-007` — scenario spec, incident brief, patch, and extra job file complete; ready for apply_patch

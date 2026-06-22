@@ -121,6 +121,10 @@ Contains:
 All scenario specs for a problem share the same canonical codebase.
 Scenario specs are independent — injecting one does not affect others.
 
+Each scenario folder also contains the injection artifacts produced by the orchestrator:
+`patch.diff`, `patch_meta.json`, and any scenario-specific extra files (e.g. job input
+files, config overrides) declared in `patch_meta.json` under `extra_copies`.
+
 ---
 
 ## Fault Scenario
