@@ -1,0 +1,7 @@
+*.pyc
+__pycache__/
+
+# run_batch outputs
+report.json
+logs/
+
