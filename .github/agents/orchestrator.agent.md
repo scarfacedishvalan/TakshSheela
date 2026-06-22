@@ -251,7 +251,7 @@ Diagnose the root cause (wrong scratch setup or edit overreach) and fix that.
 Save `patch.diff`:
 
 ```bash
-cp <diff output> codes/<problem_id>/scenarios/<scenario_id>/patch.diff
+cp <diff output> problems/<problem_id>/scenarios/<scenario_id>/patch.diff
 ```
 
 Or write the captured diff output directly to that path.
@@ -270,7 +270,21 @@ Generate `patch_meta.json`:
 }
 ```
 
-Save to `codes/<problem_id>/scenarios/<scenario_id>/patch_meta.json`.
+If the scenario requires files that are not present in the canonical codebase (e.g. a
+custom job input, a pre-positioned config file), add an `extra_copies` array:
+
+```json
+{
+  ...
+  "extra_copies": [
+    { "src": "<filename in scenario folder>", "dest": "<path relative to problem root in workspace>" }
+  ]
+}
+```
+
+Omit `extra_copies` entirely when there are no scenario-specific extra files.
+
+Save to `problems/<problem_id>/scenarios/<scenario_id>/patch_meta.json`.
 
 ---
 
@@ -296,16 +310,17 @@ Your work ends when patch.diff and patch_meta.json are saved.
 ╔══════════════════════════════════════════════════════════╗
 ║  PATCH READY — orchestrator work complete                ║
 ║                                                          ║
-║  patch.diff  : codes/<problem_id>/scenarios/<scenario_id>/patch.diff
-║  patch_meta  : codes/<problem_id>/scenarios/<scenario_id>/patch_meta.json
+║  patch.diff  : problems/<problem_id>/scenarios/<scenario_id>/patch.diff
+║  patch_meta  : problems/<problem_id>/scenarios/<scenario_id>/patch_meta.json
 ║                                                          ║
 ║  Run these commands yourself in a terminal:              ║
 ║                                                          ║
 ║  python tools/apply_patch.py \                           ║
 ║    --problem <problem_id> \                              ║
 ║    --scenario <scenario_id> \                            ║
-║    --patch codes/<problem_id>/scenarios/<scenario_id>/patch.diff \
-║    --message "<realistic commit message>"                ║
+║    --patch problems/<problem_id>/scenarios/<scenario_id>/patch.diff \
+║    --message "<realistic commit message>" \              ║
+║    --brief incident_brief.md                             ║
 ║                                                          ║
 ║  python tools/validate_patch.py \                        ║
 ║    --problem <problem_id> \                              ║
