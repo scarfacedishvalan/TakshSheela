@@ -1,20 +1,55 @@
+﻿# Incident: Nightly Batch Report Discrepancy
+
+**Severity:** P2
+**Opened:** 2026-06-19 22:41 UTC
+**Reported by:** Finance Operations (automated reconciliation)
+**Run ID:** run-1719792000
+
 ---
-scenario_id: scen-001
-artifact_type: incident_brief
-audience: candidate
+
+## Alert
+
+> [finance-reconciliation] NightProc batch run-1719792000 total mismatch.
+> Expected >=275,000. Actual: 233,576. Unaccounted jobs: 17.
+> No errors detected. Batch marked complete.
+
 ---
 
-# Incident Report — nightproc batch run
+## What Finance sees
 
-The nightly batch completed in 4.2 seconds with no exceptions and no error-level log
-output. All 200 jobs emitted a `job_complete` or `job_failed` event.
+The nightly batch report (`report.json`) shows fewer successfully processed jobs and a
+lower total value than their internal ledger. All jobs appear to have completed: no
+failed jobs appear in the report and no error alerts fired during the run.
 
-The generated report shows `total_processed: 193` and `discrepancy: 7`. The system
-defines discrepancy as `job_count − total_processed − failed_count`. On a correct run,
-discrepancy is always zero. No failed jobs were recorded in this run.
+This pattern has not been seen before. The previous night's run was clean.
 
-The run has been reproduced three times. The discrepancy value varies (observed: 5, 7, 9)
-but is never zero.
+---
 
-**Your task:** identify the root cause and propose a fix. You have access to the source
-code, the run logs, and the generated report.
+## Reproduction
+
+The batch was invoked as:
+
+```bash
+python run_batch.py jobs/nightly_full.json --threads 8
+```
+
+Logs are written to `logs/nightproc.log`.
+
+---
+
+## Available signals
+
+| Signal | Location |
+|---|---|
+| Structured run log | `logs/nightproc.log` |
+| Disputed report | `report.json` |
+| Job input | `jobs/nightly_full.json` |
+| Source | `nightproc/` |
+
+---
+
+## Notes
+
+- Finance confirmed the input file is unchanged from prior nights.
+- The report `discrepancy` field is non-zero. Expected value is 0.
+- Re-running the batch produces a different discrepancy count each time.
