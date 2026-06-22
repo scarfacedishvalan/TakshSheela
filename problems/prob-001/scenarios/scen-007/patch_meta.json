@@ -4,7 +4,7 @@
   "canonical_version": "v2",
   "expected_files_changed": 1,
   "expected_hunks": 1,
-  "mutation_type": "add_category_normalisation",
+  "mutation_type": "insert_line",
   "fault_family": "semantic",
   "extra_copies": [
     { "src": "collision_jobs.json", "dest": "jobs/collision_jobs.json" }

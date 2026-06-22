@@ -1,0 +1,12 @@
+diff --git a/prob-001/nightproc/store.py b/prob-001/nightproc/store.py
+index 15203e7..82c63b5 100644
+--- a/prob-001/nightproc/store.py
++++ b/prob-001/nightproc/store.py
+@@ -31,6 +31,7 @@ def update(accumulator, category, value, failed=False):
+ 
+     Thread-safe: acquires _lock for the full read-modify-write.
+     """
++    category = category.lower().replace("-", "_")  # normalise — legacy category names from v1 API
+     with _lock:
+         if failed:
+             key = f"{category}_failed"

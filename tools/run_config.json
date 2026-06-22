@@ -1,7 +1,7 @@
 {
   "problem": "prob-001",
-  "scenario": "scen-001",
-  "patch": "problems/prob-001/scenarios/scen-001/patch.diff",
-  "message": "Remove unnecessary lock contention in accumulator",
+  "scenario": "scen-007",
+  "patch": "problems/prob-001/scenarios/scen-007/patch.diff",
+  "message": "Collision jobs should be in the jobs directory, not the root.",
   "brief": "incident_brief.md"
 }

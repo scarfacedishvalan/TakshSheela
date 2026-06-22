@@ -192,18 +192,35 @@ Do not proceed until patch_injection confirms.
 
 ## Phase 4 — Diff Capture
 
-Run `git diff` in the scratch repo:
+Capture the raw `git diff` bytes and write them directly to `patch.diff` using Python.
+Do NOT use PowerShell's `Out-File` or redirect operators (`>`, `>>`) — they silently
+mangle non-ASCII characters (em-dashes, smart quotes, any UTF-8 above 0x7F) into
+Windows-1252 mojibake (e.g. `—` → `ΓÇö`). Injected comments often contain em-dashes;
+this corruption makes `git apply --check` fail with a context-line mismatch.
+
+Use this Python one-liner instead:
 
 ```bash
-git -C codes/_scratch/<problem_id>-<scenario_id> diff
+python -c "
+import subprocess, pathlib
+diff = subprocess.run(
+    ['git', '-C', 'codes/_scratch/<problem_id>-<scenario_id>', 'diff'],
+    capture_output=True
+).stdout
+pathlib.Path('problems/<problem_id>/scenarios/<scenario_id>/patch.diff').write_bytes(diff)
+print(len(diff), 'bytes written')
+"
 ```
 
-Capture the full stdout output.
+The `write_bytes()` call writes the exact bytes `git diff` produced — no encoding
+translation, no BOM, no line-ending conversion.
 
-This output IS the patch. Do not modify it. Do not reformat it.
+Verify the output is non-empty (the printed byte count must be > 0). If zero, the edit
+was not committed to the scratch repo or the file was not changed. Hard stop and report
+— do not retry by asking patch_injection to rewrite the diff.
 
-Verify it is non-empty. If empty, the edit was not staged or the file was not changed.
-Hard stop and report — do not retry by asking patch_injection to rewrite the diff.
+After writing, read back and confirm the file contains the expected non-ASCII characters
+if the mutation comment includes any (e.g. verify `—` is present, not `ΓÇö`).
 
 ---
 
@@ -248,13 +265,8 @@ Diagnose the root cause (wrong scratch setup or edit overreach) and fix that.
 
 ## Phase 6 — Save Artifacts
 
-Save `patch.diff`:
-
-```bash
-cp <diff output> problems/<problem_id>/scenarios/<scenario_id>/patch.diff
-```
-
-Or write the captured diff output directly to that path.
+`patch.diff` was already written to disk by the Python one-liner in Phase 4.
+Do not copy or rewrite it — doing so risks re-introducing encoding corruption.
 
 Generate `patch_meta.json`:
 
