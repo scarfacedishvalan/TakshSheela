@@ -250,10 +250,11 @@ def main():
     parser.add_argument("--scenario", default=run_cfg.get("scenario"), help="Scenario ID, e.g. scen-001")
     parser.add_argument("--patch",    default=run_cfg.get("patch"),    help="Path to patch.diff (absolute or relative to takshsheela_root)")
     parser.add_argument("--message",  default=run_cfg.get("message"),  help="Realistic commit message for the mutation commit")
+    parser.add_argument("--brief",    default=run_cfg.get("brief"),    help="Filename of the incident brief in the scenario folder, e.g. incident_brief.md")
     args = parser.parse_args()
 
     # Validate required fields — may come from run_config.json or CLI
-    missing = [f for f in ("problem", "scenario", "patch", "message") if not getattr(args, f)]
+    missing = [f for f in ("problem", "scenario", "patch", "message", "brief") if not getattr(args, f)]
     if missing:
         parser.error(
             f"missing required argument(s): {', '.join('--' + f for f in missing)}\n"
@@ -319,7 +320,13 @@ def main():
     existing = git(["branch", "--list", scenario_branch], cwd=workspace, check=False)
     if scenario_branch in existing.stdout:
         git(["branch", "-D", scenario_branch], cwd=workspace)
-        print(f"\nDeleted existing branch: {scenario_branch}")
+        print(f"\nDeleted existing local branch: {scenario_branch}")
+
+    # Delete remote branch if it exists (non-fatal — remote may not exist)
+    remote_check = git(["ls-remote", "--heads", "origin", scenario_branch], cwd=workspace, check=False)
+    if remote_check.returncode == 0 and scenario_branch in remote_check.stdout:
+        git(["push", "origin", "--delete", scenario_branch], cwd=workspace)
+        print(f"Deleted existing remote branch: {scenario_branch}")
 
     git(["checkout", "-b", scenario_branch], cwd=workspace)
     print(f"Created branch: {scenario_branch}")
@@ -352,6 +359,15 @@ def main():
     git(["apply", "patch.diff"], cwd=workspace)
 
     patch_dest.unlink()
+
+    # Copy incident_brief.md from scenario folder into the workspace branch
+    brief_src = takshsheela_root / "problems" / args.problem / "scenarios" / args.scenario / args.brief
+    if brief_src.exists():
+        brief_dest = workspace / args.problem / "INCIDENT_BRIEF.md"
+        shutil.copy2(brief_src, brief_dest)
+        print(f"Copied incident_brief.md -> {brief_dest.relative_to(workspace)}")
+    else:
+        print(f"WARNING: incident_brief.md not found at {brief_src} — skipping", file=sys.stderr)
 
     git(["add", "-A"], cwd=workspace)
     git(["commit", "-m", args.message], cwd=workspace)
